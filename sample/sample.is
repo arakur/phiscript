@@ -20,4 +20,4 @@ let dict = {
         baz: "ok"
     }
 }
-<: (dict)
+<: (dict.bar.baz)
