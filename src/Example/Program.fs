@@ -50,6 +50,8 @@ type Pattern =
     | Numeral of Numeral
     | StringLit of StringLit
     | Variable of Var
+    | Array of Pattern list
+    | Tuple of Pattern list
     | Wildcard
 
 [<RequireQualifiedAccess>]
@@ -57,6 +59,8 @@ type Expr =
     | Numeral of Numeral
     | StringLit of StringLit
     | Variable of Var
+    | Array of Expr list
+    | Tuple of Expr list
     | UnOp of UnOp
     | UnOpApplied of op: UnOp * arg: Expr
     | BinOp of BinOp
@@ -244,8 +248,6 @@ module Parser =
 
     let private syntaxSymbol (name: string) : Parser<unit, unit> = whitespace >>. pstring name >>% ()
 
-    let private digit: Parser<char, unit> = satisfy isDigit
-
     let private digitSeq: Parser<DigitSeq, unit> = many1Satisfy isDigit |>> DigitSeq
 
     let private intNumeral: Parser<Numeral, unit> = digitSeq |>> Numeral.mkInt
@@ -288,13 +290,13 @@ module Parser =
     let private varName: Parser<VarName, unit> = varNameSegment |>> VarName.mk
 
     let private namespaceVarName: Parser<NamespaceVarName, unit> =
-        pipe2 (sepBy1 varNameSegment (syntaxSymbol ".")) varNameSegment NamespaceVarName.mk
+        pipe2 (many1 (attempt (varNameSegment .>> syntaxSymbol "."))) varNameSegment NamespaceVarName.mk
 
     let private var: Parser<Var, unit> =
         whitespace
         >>. choice
-            [ attempt varName |>> Var.NoNamespace
-              attempt namespaceVarName |>> Var.Namespace ]
+            [ attempt namespaceVarName |>> Var.Namespace
+              attempt varName |>> Var.NoNamespace ]
 
     let private unOpName: Parser<UnOpName, unit> =
         choice (Operators.unOps |> Seq.map pstring) |>> UnOpName
@@ -388,11 +390,11 @@ module Parser =
         parse.Delay(fun () -> many (attempt (statementOrEmpty .>> linebreak)) |>> List.choose id |>> Block.mk)
 
     let rec private binOpSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
-        let single (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
-            let parenthesized: Parser<Expr, unit> =
-                parse.Delay(fun () -> attempt (syntaxSymbol "(") >>. expr () .>> syntaxSymbol ")")
+        let parenthesized (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+            parse.Delay(fun () -> attempt (syntaxSymbol "(") >>. expr () .>> syntaxSymbol ")")
 
-            parse.Delay(fun () -> choice [ parenthesized; prim ])
+        let single (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+            parse.Delay(fun () -> choice [ parenthesized expr; prim ])
 
         let exprSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
             parse.Delay(fun () ->
@@ -423,6 +425,18 @@ module Parser =
 
             opSeq |>> fold >>= resultFold)
 
+    let commaSeparated (expr: unit -> Parser<Expr, unit>) : Parser<Expr list, unit> =
+        parse.Delay(fun () ->
+            let head = binOpSeq expr
+            let tail = many (attempt (syntaxSymbol "," >>. binOpSeq expr))
+            pipe2 head tail (fun head tail -> head :: tail))
+
+    let array_ (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+        parse.Delay(fun () ->
+            attempt (syntaxSymbol "[") >>. opt (commaSeparated expr) .>> syntaxSymbol "]"
+            |>> Option.defaultValue []
+            |>> Expr.Array)
+
     let rec private expr () : Parser<Expr, unit> =
         let statement = statement binOpSeq expr block
         let block = block statement
@@ -437,12 +451,29 @@ module Parser =
 
                 cases .>>. opt else_ |>> Expr.If)
 
+        let match_ (expr: unit -> Parser<Expr, unit>) (block: Parser<Block, unit>) : Parser<Expr, unit> =
+            parse.Delay(fun () ->
+                let match_ = attempt (keyword "match") >>. expr ()
+                let case = pattern .>>. block
+                let cases = many1 case .>> keyword "end"
+
+                match_ .>>. cases |>> Expr.Match)
+
+        //
+
         let if_ = if_ expr block
+
+        let match_ = match_ expr block
 
         let block = keyword "begin" >>. block |>> Expr.Block .>> keyword "end"
 
-        let raw = binOpSeq expr
-        parse.Delay(fun () -> whitespace >>. choice [ if_; block; raw ])
+        let array_ = array_ expr
+
+        let raw =
+            commaSeparated expr
+            |>> (fun exprs -> if exprs.Length = 1 then exprs.Head else Expr.Tuple exprs)
+
+        parse.Delay(fun () -> whitespace >>. choice [ if_; match_; block; array_; raw ])
 
     //
 

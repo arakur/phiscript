@@ -7,7 +7,9 @@ for i in 30
     else
         <: "too big!"
     end
-    z := add x y
+    z := x + y
     x <- y
     y = z
 end
+
+let xy = [x, y]
