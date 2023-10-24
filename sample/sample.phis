@@ -13,3 +13,12 @@ for i in 20
 end
 
 let xy = [x, y]
+
+let dict = {
+    foo: 334
+    bar: {
+        baz: "ok"
+    }
+}
+
+<: dict

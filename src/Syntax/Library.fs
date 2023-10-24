@@ -91,6 +91,10 @@ type Key =
 
     static member mk name = { name = name }
 
+    static member compose(this: Key) = this.name.Name
+
+    member this.Compose = Key.compose this
+
 [<RequireQualifiedAccess>]
 type Pattern =
     | Numeral of Numeral

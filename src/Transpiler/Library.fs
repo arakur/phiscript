@@ -24,6 +24,16 @@ let rec private transpileExpr (expr: Expr) =
     | Expr.Variable var -> var.Compose
     | Expr.Array array -> array |> List.map transpileExpr |> String.concat " " |> (fun s -> "[" + s + "]")
     | Expr.Tuple tuple -> tuple |> List.map transpileExpr |> String.concat " " |> (fun s -> "[" + s + "]")
+    | Expr.Dictionary dict ->
+        dict
+        |> List.map (fun (key, value) -> key.Compose + ": " + transpileExpr value)
+        |> List.map (fun s ->
+            s
+            |> String.split [ "\n" ]
+            |> Seq.map (fun s -> "    " + s + "\n")
+            |> String.concat "")
+        |> String.concat ""
+        |> (fun s -> "{\n" + s + "}")
     | Expr.UnOp(_) -> failwith "Not Implemented"
     | Expr.UnOpApplied(op, arg) -> [ op.Compose; "(" + transpileExpr arg + ")" ] |> String.concat " "
     | Expr.BinOp(_) -> failwith "Not Implemented"

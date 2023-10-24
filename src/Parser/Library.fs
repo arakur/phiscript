@@ -241,14 +241,17 @@ let rec private expr () : Parser<Expr, unit> =
 
     let dictionary (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
-            let key = varName |>> Key.mk
+            let key = whitespace >>. varName |>> Key.mk
             let value = syntaxSymbol ":" >>. expr ()
 
             let pair = key .>>. value
 
+            let pair' = choice [ attempt pair |>> Some; whitespace >>% None ]
+
             let pairs =
-                pair .>>. many (attempt (newline >>. pair))
+                pair' .>>. many (attempt (newline >>. pair'))
                 |>> (fun (head, tail) -> head :: tail)
+                |>> List.choose id
 
             attempt (syntaxSymbol "{") >>. pairs .>> syntaxSymbol "}" |>> Expr.Dictionary)
 
