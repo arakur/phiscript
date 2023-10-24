@@ -21,4 +21,4 @@ let dict = {
     }
 }
 
-<: dict
+<: dict.bar.baz

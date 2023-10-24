@@ -112,6 +112,7 @@ type Expr =
     | Array of Expr list
     | Tuple of Expr list
     | Dictionary of (Key * Expr) list
+    | FieldAccess of expr: Expr * key: Key
     | UnOp of UnOp
     | UnOpApplied of op: UnOp * arg: Expr
     | BinOp of BinOp
