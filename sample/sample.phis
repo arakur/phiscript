@@ -1,0 +1,13 @@
+var x = 0
+var y = 1
+
+for i in 30
+    if x < 100
+        <: x
+    else
+        <: "too big!"
+    end
+    z := add(x, y)
+    x <- y
+    y <- z
+end

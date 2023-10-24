@@ -1,0 +1,13 @@
+var x = 0
+var y = 1
+
+for (let i, 30) {
+    if (x < 100) {
+        <: x
+    } else {
+        <: "too big!"
+    }
+    let z = x + y
+    x = y
+    y = z
+}
