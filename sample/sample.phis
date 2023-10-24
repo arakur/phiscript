@@ -7,7 +7,7 @@ for i in 20
     else
         <: "too big!"
     end
-    let f = (x, y) -> x + y
+    let f = (x, y) -> Core::add(x, y)
     z := f(x, y)
     x <- y; y <- z
 end

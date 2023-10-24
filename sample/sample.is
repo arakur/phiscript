@@ -7,7 +7,7 @@ for (let i, 20) {
         <: ("too big!")
     }
     let f = @(x, y) {
-        (x) + (y)
+        Core:add(x, y)
     }
     let z = f(x, y)
     x = y

@@ -22,7 +22,7 @@ let rec private transpileExpr (expr: Expr) =
     | Expr.Tuple tuple -> tuple |> List.map transpileExpr |> String.concat " " |> sprintf "[%s]"
     | Expr.Dictionary dict ->
         dict
-        |> List.map (fun (key, value) -> sprintf "%s: %s" key.Compose (transpileExpr value))
+        |> List.map (fun (key, value) -> (key.Compose, transpileExpr value) ||> sprintf "%s: %s")
         |> List.map (fun s -> s |> String.split [ "\n" ] |> Seq.map (sprintf "    %s\n") |> String.concat "")
         |> String.concat ""
         |> sprintf "{\n%s}"

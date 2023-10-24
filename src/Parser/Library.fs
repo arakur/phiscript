@@ -49,7 +49,7 @@ let private varNameSegment: Parser<string, unit> =
 let private varName: Parser<VarName, unit> = varNameSegment |>> VarName.mk
 
 let private namespaceVarName: Parser<NamespaceVarName, unit> =
-    pipe2 (many1 (attempt (varNameSegment .>> syntaxSymbol "."))) varNameSegment NamespaceVarName.mk
+    pipe2 (many1 (attempt (varNameSegment .>> syntaxSymbol "::"))) varNameSegment NamespaceVarName.mk
 
 let private var: Parser<Var, unit> =
     whitespace
