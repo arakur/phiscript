@@ -60,6 +60,8 @@ let private var: Parser<Var, unit> =
         [ attempt namespaceVarName |>> Var.Namespace
           attempt varName |>> Var.NoNamespace ]
 
+let key = varName |>> Key.mk
+
 let private unOpName: Parser<UnOpName, unit> =
     choice (Operators.unOps |> Seq.map pstring) |>> UnOpName
 
@@ -170,10 +172,15 @@ let rec private binOpSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit>
     let single (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () -> choice [ parenthesized expr; prim ])
 
+    let single' (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+        parse.Delay(fun () ->
+            single expr .>>. many (attempt (pchar '.' >>. key))
+            |>> (fun (expr, keys) -> (expr, keys) ||> Seq.fold (fun expr key -> Expr.FieldAccess(expr, key))))
+
     let exprSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
-            let fn = single expr
-            let args = many (attempt (single expr))
+            let fn = single' expr
+            let args = many (attempt (single' expr))
 
             fn .>>. args
             |>> (fun (fn, args) -> if args = [] then fn else Expr.Apply(fn, args)))
@@ -235,10 +242,10 @@ let rec private expr () : Parser<Expr, unit> =
 
     let dictionary (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
-            let key = whitespace >>. varName |>> Key.mk
+            let key' = whitespace >>. key
             let value = syntaxSymbol ":" >>. expr ()
 
-            let pair = key .>>. value
+            let pair = key' .>>. value
 
             let pair' = choice [ attempt pair |>> Some; whitespace >>% None ]
 
