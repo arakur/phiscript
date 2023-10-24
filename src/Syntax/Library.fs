@@ -86,7 +86,10 @@ type BinOp =
 
     member this.Compose = BinOp.compose this
 
-type Key = string
+type Key =
+    { name: VarName }
+
+    static member mk name = { name = name }
 
 [<RequireQualifiedAccess>]
 type Pattern =

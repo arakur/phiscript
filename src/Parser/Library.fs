@@ -239,6 +239,19 @@ let rec private expr () : Parser<Expr, unit> =
 
             match_ .>>. cases |>> Expr.Match)
 
+    let dictionary (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+        parse.Delay(fun () ->
+            let key = varName |>> Key.mk
+            let value = syntaxSymbol ":" >>. expr ()
+
+            let pair = key .>>. value
+
+            let pairs =
+                pair .>>. many (attempt (newline >>. pair))
+                |>> (fun (head, tail) -> head :: tail)
+
+            attempt (syntaxSymbol "{") >>. pairs .>> syntaxSymbol "}" |>> Expr.Dictionary)
+
     let lambdaExpr (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
             let pat = attempt (pattern .>> syntaxSymbol "->")
@@ -256,13 +269,17 @@ let rec private expr () : Parser<Expr, unit> =
 
     let array_ = array_ expr
 
+    let dictionary = dictionary expr
+
     let lambdaExpr = lambdaExpr expr
 
     let raw =
         commaSeparated expr
         |>> (fun exprs -> if exprs.Length = 1 then exprs.Head else Expr.Tuple exprs)
 
-    parse.Delay(fun () -> whitespace >>. choice [ if_; match_; block; array_; lambdaExpr; raw ])
+    parse.Delay(fun () ->
+        whitespace
+        >>. choice [ if_; match_; block; array_; dictionary; lambdaExpr; raw ])
 
 //
 
