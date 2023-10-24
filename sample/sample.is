@@ -6,10 +6,11 @@ for (let i, 20) {
     } else {
         <: ("too big!")
     }
-    let z = Core:add(x, y)
+    let f = @(x, y) {
+        (x) + (y)
+    }
+    let z = f(x, y)
     x = y
     y = z
 }
-let xy = {
-    _0: 0
-}
+let xy = [x y]

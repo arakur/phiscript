@@ -105,7 +105,8 @@ type Expr =
     | BinOp of BinOp
     | BinOpApplied of op: BinOp * lhs: Expr * rhs: Expr
     | Apply of fun_: Expr * args: Expr list
-    | Block of Block
+    | Lambda of pat: Pattern * body: Expr
+    | EvalBlock of Block
     | If of cases: (Expr * Block) list * else_: Block option
     | Match of expr: Expr * cases: (Pattern * Block) list
 
@@ -348,11 +349,32 @@ module Parser =
     let private binOp: Parser<BinOp, unit> = whitespace >>. binOpName |>> BinOp.mk
 
     let private pattern: Parser<Pattern, unit> =
-        let numeral = numeral |>> Pattern.Numeral
-        let stringLit = stringLit |>> Pattern.StringLit
-        let variable = attempt var |>> Pattern.Variable
-        let wildcard = attempt (syntaxSymbol "_") >>% Pattern.Wildcard
-        whitespace >>. choice [ numeral; stringLit; attempt variable; wildcard ]
+        let rec p () =
+            parse.Delay(fun () ->
+                let numeral = numeral |>> Pattern.Numeral
+                let stringLit = stringLit |>> Pattern.StringLit
+                let variable = attempt var |>> Pattern.Variable
+
+                let array =
+                    attempt (syntaxSymbol "[") >>. p ()
+                    .>>. many (attempt (syntaxSymbol "," >>. p ()))
+                    .>> syntaxSymbol "]"
+                    |>> (fun (head, tail) -> head :: tail)
+                    |>> Pattern.Array
+
+                let tuple =
+                    attempt (syntaxSymbol "(") >>. p ()
+                    .>>. many (attempt (syntaxSymbol "," >>. p ()))
+                    .>> syntaxSymbol ")"
+                    |>> (fun (head, tail) -> head :: tail)
+                    |>> Pattern.Tuple
+
+                let wildcard = attempt (syntaxSymbol "_") >>% Pattern.Wildcard
+
+                whitespace
+                >>. choice [ numeral; stringLit; attempt variable; array; tuple; wildcard ])
+
+        p ()
 
     let private prim: Parser<Expr, unit> =
         let numeral = numeral |>> Expr.Numeral
@@ -498,21 +520,30 @@ module Parser =
 
                 match_ .>>. cases |>> Expr.Match)
 
+        let lambdaExpr (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+            parse.Delay(fun () ->
+                let pat = attempt (pattern .>> syntaxSymbol "->")
+                let body = expr ()
+
+                parse.Delay(fun () -> pat .>>. body |>> Expr.Lambda))
+
         //
 
         let if_ = if_ expr block
 
         let match_ = match_ expr block
 
-        let block = keyword "begin" >>. block |>> Expr.Block .>> keyword "end"
+        let block = keyword "begin" >>. block |>> Expr.EvalBlock .>> keyword "end"
 
         let array_ = array_ expr
+
+        let lambdaExpr = lambdaExpr expr
 
         let raw =
             commaSeparated expr
             |>> (fun exprs -> if exprs.Length = 1 then exprs.Head else Expr.Tuple exprs)
 
-        parse.Delay(fun () -> whitespace >>. choice [ if_; match_; block; array_; raw ])
+        parse.Delay(fun () -> whitespace >>. choice [ if_; match_; block; array_; lambdaExpr; raw ])
 
     //
 
@@ -570,7 +601,7 @@ module Transpiler =
                     |> String.concat ""
 
                 fun_' + args'
-        | Expr.Block block -> block |> transpileBlock
+        | Expr.EvalBlock block -> [ "eval"; block |> transpileBlock ] |> String.concat " "
         | Expr.If(cases, else_) ->
             match cases with
             | [] -> failwith "Unexpected: if with no cases."
@@ -588,6 +619,22 @@ module Transpiler =
 
                 if' @ elif' @ else' |> String.concat " "
         | Expr.Match(expr, cases) -> failwith "Not Implemented"
+        | Expr.Lambda(pat, body) ->
+            let args =
+                match pat with
+                | Pattern.Tuple tuple -> tuple |> List.map transpilePattern |> String.concat ", "
+                | Pattern.Variable var -> var.Compose
+                | Pattern.Wildcard -> "_"
+                | _ -> failwith "Not Implemented"
+
+            let body' =
+                body
+                |> transpileExpr
+                |> FSharpPlus.String.split [ "\n" ]
+                |> Seq.map (fun s -> "    " + s + "\n")
+                |> String.concat ""
+
+            $"@({args}) {{\n" + body' + "}"
 
     and private transpileStatement (statement: Statement) =
         match statement with
