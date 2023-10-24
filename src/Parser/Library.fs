@@ -266,4 +266,4 @@ let rec private expr () : Parser<Expr, unit> =
 
 //
 
-let program = many1 (statement binOpSeq expr block .>> linebreak)
+let program = many1 (statement binOpSeq expr block .>> linebreak) .>> eof
