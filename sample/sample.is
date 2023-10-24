@@ -1,13 +1,15 @@
 var x = 0
 var y = 1
-
-for (let i, 30) {
-    if (x < 100) {
-        <: x
+for (let i, 20) {
+    if (x) < (100) {
+        <: (x)
     } else {
-        <: "too big!"
+        <: ("too big!")
     }
-    let z = x + y
+    let z = Core:add(x, y)
     x = y
     y = z
+}
+let xy = {
+    _0: 0
 }

@@ -1,13 +1,13 @@
 var x = 0
 var y = 1
 
-for i in 30
+for i in 20
     if x < 100
         <: x
     else
         <: "too big!"
     end
-    z := x + y
+    z := Core.add(x, y)
     x <- y
     y = z
 end
