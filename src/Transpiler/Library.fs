@@ -9,11 +9,7 @@ let rec private transpilePattern (pattern: Pattern) =
     | Pattern.Numeral numeral -> numeral.Compose
     | Pattern.StringLit stringLit -> stringLit.Compose
     | Pattern.Variable var -> var.Compose
-    | Pattern.Array array ->
-        array
-        |> List.map transpilePattern
-        |> String.concat ", "
-        |> (fun s -> "[" + s + "]")
+    | Pattern.Array array -> array |> List.map transpilePattern |> String.concat ", " |> sprintf "[%s]"
     | Pattern.Tuple tuple -> failwith "Not Implemented"
     | Pattern.Wildcard -> "*"
 
@@ -22,23 +18,21 @@ let rec private transpileExpr (expr: Expr) =
     | Expr.Numeral numeral -> numeral.Compose
     | Expr.StringLit stringLit -> stringLit.Compose
     | Expr.Variable var -> var.Compose
-    | Expr.Array array -> array |> List.map transpileExpr |> String.concat " " |> (fun s -> "[" + s + "]")
-    | Expr.Tuple tuple -> tuple |> List.map transpileExpr |> String.concat " " |> (fun s -> "[" + s + "]")
+    | Expr.Array array -> array |> List.map transpileExpr |> String.concat " " |> sprintf "[%s]"
+    | Expr.Tuple tuple -> tuple |> List.map transpileExpr |> String.concat " " |> sprintf "[%s]"
     | Expr.Dictionary dict ->
         dict
-        |> List.map (fun (key, value) -> key.Compose + ": " + transpileExpr value)
-        |> List.map (fun s ->
-            s
-            |> String.split [ "\n" ]
-            |> Seq.map (fun s -> "    " + s + "\n")
-            |> String.concat "")
+        |> List.map (fun (key, value) -> sprintf "%s: %s" key.Compose (transpileExpr value))
+        |> List.map (fun s -> s |> String.split [ "\n" ] |> Seq.map (sprintf "    %s\n") |> String.concat "")
         |> String.concat ""
-        |> (fun s -> "{\n" + s + "}")
+        |> sprintf "{\n%s}"
     | Expr.UnOp(_) -> failwith "Not Implemented"
-    | Expr.UnOpApplied(op, arg) -> [ op.Compose; "(" + transpileExpr arg + ")" ] |> String.concat " "
+    | Expr.UnOpApplied(op, arg) -> [ op.Compose; transpileExpr arg |> sprintf "(%s)" ] |> String.concat " "
     | Expr.BinOp(_) -> failwith "Not Implemented"
     | Expr.BinOpApplied(op, lhs, rhs) ->
-        [ "(" + transpileExpr lhs + ")"; op.Compose; "(" + transpileExpr rhs + ")" ]
+        [ transpileExpr lhs |> sprintf "(%s)"
+          op.Compose
+          transpileExpr rhs |> sprintf "(%s)" ]
         |> String.concat " "
     | Expr.Apply(fun_, args) ->
         // TODO: 現状の実装は別の場所で定義したタプルを入力した場合に正しくならないので，型情報を使って正しくする．
@@ -46,21 +40,14 @@ let rec private transpileExpr (expr: Expr) =
         | [ Expr.Tuple tuple ] ->
             let fun_' = transpileExpr fun_
 
-            let args' =
-                tuple
-                |> List.map transpileExpr
-                |> String.concat ", "
-                |> (fun s -> "(" + s + ")")
+            let args' = tuple |> List.map transpileExpr |> String.concat ", " |> sprintf "(%s)"
 
             fun_' + args'
         | _ ->
             let fun_' = transpileExpr fun_
 
             let args' =
-                args
-                |> List.map transpileExpr
-                |> List.map (fun s -> "(" + s + ")")
-                |> String.concat ""
+                args |> List.map transpileExpr |> List.map (sprintf "(%s)") |> String.concat ""
 
             fun_' + args'
     | Expr.EvalBlock block -> [ "eval"; block |> transpileBlock ] |> String.concat " "
@@ -81,13 +68,12 @@ let rec private transpileExpr (expr: Expr) =
 
             if' @ elif' @ else' |> String.concat " "
     | Expr.Match(expr, cases) ->
-        let header =
-            [ "match"; "(" + (expr |> transpileExpr) + ")"; "{" ] |> String.concat " "
+        let header = sprintf "match (%s) {" (expr |> transpileExpr)
 
         let cases' =
             cases
             |> List.map (fun (pat, block) -> [ pat |> transpilePattern; block |> transpileBlock ] |> String.concat " ")
-            |> List.map (fun s -> "    " + s + "\n")
+            |> List.map (sprintf "    %s\n")
             |> String.concat ""
 
         let footer = "}"
@@ -106,10 +92,10 @@ let rec private transpileExpr (expr: Expr) =
             body
             |> transpileExpr
             |> String.split [ "\n" ]
-            |> Seq.map (fun s -> "    " + s + "\n")
+            |> Seq.map (sprintf "    %s\n")
             |> String.concat ""
 
-        $"@({args}) {{\n" + body' + "}"
+        sprintf "@(%s) {\n%s}" args body'
 
 and private transpileStatement (statement: Statement) =
     match statement with
@@ -131,25 +117,21 @@ and private transpileStatement (statement: Statement) =
         let loop = $"(let {pat |> transpilePattern}, {range |> transpileExpr})"
 
         [ "for"; loop; block |> transpileBlock ] |> String.concat " "
-    | Return expr -> expr |> transpileExpr |> (fun s -> "return " + s)
+    | Return expr -> expr |> transpileExpr |> sprintf "return %s"
 
 and transpileBlock (block: Block) =
     let statements =
         block.Statements
         |> Seq.map transpileStatement
-        |> Seq.map (fun s ->
-            s
-            |> String.split [ "\n" ]
-            |> Seq.map (fun s -> "    " + s + "\n")
-            |> String.concat "")
+        |> Seq.map (fun s -> s |> String.split [ "\n" ] |> Seq.map (sprintf "    %s\n") |> String.concat "")
         |> String.concat ""
 
     let return_ =
         block.Return
-        |> Option.map (fun expr -> expr |> transpileExpr |> (fun s -> "    " + s + "\n"))
+        |> Option.map (fun expr -> expr |> transpileExpr |> sprintf "    %s\n")
         |> Option.defaultValue ""
 
-    "{\n" + statements + return_ + "}"
+    sprintf "{\n%s%s}" statements return_
 
 let transpile (program: Statement list) =
     program |> Seq.map transpileStatement |> String.concat "\n"
