@@ -3,6 +3,8 @@
 PhiScript はスクリプト言語 [AiScript](https://github.com/aiscript-dev/aiscript) の構文・言語機能を刷新し，より開発を平易にすることを目的とする言語です．
 AiScript へのトランスパイルを提供し，既存のコードベースと両立します．
 
+**本プロジェクトは開発途中です．**
+
 ## インストール
 
 AiScript の処理系は [本家リポジトリ](https://github.com/aiscript-dev/aiscript) を `clone` して取得してください．
