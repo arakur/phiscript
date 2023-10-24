@@ -1,4 +1,4 @@
-﻿module Parser.Parser
+﻿module Parser
 
 open Syntax
 
@@ -15,13 +15,6 @@ let private keyword (name: string) : Parser<unit, unit> = whitespace >>. pstring
 let private syntaxSymbol (name: string) : Parser<unit, unit> = whitespace >>. pstring name >>% ()
 
 let private digitSeq: Parser<DigitSeq, unit> = many1Satisfy isDigit |>> DigitSeq
-
-let private intNumeral: Parser<Numeral, unit> = digitSeq |>> Numeral.mkInt
-
-let private floatNumeral: Parser<Numeral, unit> =
-    let integer: Parser<DigitSeq, unit> = digitSeq
-    let decimal: Parser<DigitSeq, unit> = pchar '.' >>. digitSeq
-    pipe2 integer decimal Numeral.mkFloat
 
 let private numeral: Parser<Numeral, unit> =
     let integer: Parser<DigitSeq, unit> = attempt digitSeq

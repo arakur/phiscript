@@ -1,9 +1,4 @@
-﻿open Parser
-open Transpiler
-
-open FParsec
-
-let path = "sample/sample.phis"
+﻿let path = "sample/sample.phis"
 
 let source = System.IO.File.ReadAllText path
 
@@ -14,8 +9,8 @@ let parser = Parser.program
 let ast = source |> FParsec.CharParsers.run parser
 
 match ast with
-| Failure(msg, _, _) -> printfn "FAILED!\n%s" msg
-| Success(ast, _, _) ->
+| FParsec.CharParsers.Failure(msg, _, _) -> printfn "FAILED!\n%s" msg
+| FParsec.CharParsers.Success(ast, _, _) ->
     printfn "ast:\n%A" ast
 
     let transpiled = Transpiler.transpile ast
