@@ -34,6 +34,10 @@ let rec private transpileExpr (expr: Expr) =
             |> String.concat "")
         |> String.concat ""
         |> (fun s -> "{\n" + s + "}")
+    | Expr.FieldAccess(expr, key) ->
+        let expr' = expr |> transpileExpr
+        let key' = key.Compose
+        sprintf "(%s).%s" expr' key'
     | Expr.UnOp(_) -> failwith "Not Implemented"
     | Expr.UnOpApplied(op, arg) -> [ op.Compose; "(" + transpileExpr arg + ")" ] |> String.concat " "
     | Expr.BinOp(_) -> failwith "Not Implemented"
