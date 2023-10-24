@@ -65,22 +65,36 @@ type Expr =
     | Block of Block
     | If of cases: (Expr * Block) list * else_: Block option
     | Match of expr: Expr * cases: (Pattern * Block) list
-    | For of pat: Pattern * range: Expr * block: Block
 
 and Statement =
     | Let of pat: Pattern * expr: Expr
     | Var of pat: Pattern * expr: Expr
+    | Gets of pat: Pattern * expr: Expr
     | Do of expr: Expr
+    | For of pat: Pattern * range: Expr * block: Block
     | Return of expr: Expr
+    | RawExpr of expr: Expr
 
 and Block =
     { Statements: Statement list
       Return: Expr option }
 
+    static member mk statements =
+        match statements |> List.rev with
+        | [] -> { Statements = []; Return = None }
+        | RawExpr expr :: statements'
+        | Return expr :: statements' ->
+            { Statements = statements' |> List.rev
+              Return = Some expr }
+        | _ ->
+            { Statements = statements
+              Return = None }
+
 //
 
 let keywords =
-    [ "let"; "var"; "do"; "return"; "if"; "else"; "match"; "for" ] |> Set.ofList
+    [ "let"; "var"; "do"; "return"; "if"; "elif"; "else"; "match"; "for"; "end" ]
+    |> Set.ofList
 
 module Operators =
     open FSharpPlus
@@ -101,7 +115,13 @@ module Operators =
           Associativity: Associativity }
 
     let operatorTable =
-        [ { Names = [ "+"; "-" ] |> List.map BinOpName |> List.map BinOp.mk |> Set.ofList
+        [ { Names =
+              [ "="; "<"; ">"; "<="; ">="; "<>"; "!="; "==" ]
+              |> List.map BinOpName
+              |> List.map BinOp.mk
+              |> Set.ofList
+            Associativity = Associativity.None }
+          { Names = [ "+"; "-" ] |> List.map BinOpName |> List.map BinOp.mk |> Set.ofList
             Associativity = Associativity.Left }
           { Names = [ "*"; "/" ] |> List.map BinOpName |> List.map BinOp.mk |> Set.ofList
             Associativity = Associativity.Left } ]
@@ -214,111 +234,219 @@ module Operators =
 module Parser =
     open FParsec
     open FSharpx.Collections
-    open Microsoft.VisualBasic.CompilerServices
 
-    let keyword (name: string) : Parser<unit, unit> = spaces >>. pstring name >>% ()
+    let private whitespace: Parser<unit, unit> = anyOf " \t" |> many >>% ()
 
-    let syntaxSymbol (name: string) : Parser<unit, unit> = spaces >>. pstring name >>% ()
+    let private linebreak: Parser<unit, unit> =
+        eof <|> (many1 (attempt (whitespace >>. anyOf ";\r\n")) >>% ())
 
-    let digit: Parser<char, unit> = satisfy isDigit
+    let private keyword (name: string) : Parser<unit, unit> = whitespace >>. pstring name >>% ()
 
-    let digitSeq: Parser<DigitSeq, unit> = many1Satisfy isDigit |>> DigitSeq
+    let private syntaxSymbol (name: string) : Parser<unit, unit> = whitespace >>. pstring name >>% ()
 
-    let intNumeral: Parser<Numeral, unit> = digitSeq |>> Numeral.mkInt
+    let private digit: Parser<char, unit> = satisfy isDigit
 
-    let floatNumeral: Parser<Numeral, unit> =
+    let private digitSeq: Parser<DigitSeq, unit> = many1Satisfy isDigit |>> DigitSeq
+
+    let private intNumeral: Parser<Numeral, unit> = digitSeq |>> Numeral.mkInt
+
+    let private floatNumeral: Parser<Numeral, unit> =
         let integer: Parser<DigitSeq, unit> = digitSeq
         let decimal: Parser<DigitSeq, unit> = pchar '.' >>. digitSeq
         pipe2 integer decimal Numeral.mkFloat
 
-    let numeral: Parser<Numeral, unit> =
-        let integer: Parser<DigitSeq, unit> = digitSeq
+    let private numeral: Parser<Numeral, unit> =
+        let integer: Parser<DigitSeq, unit> = attempt digitSeq
         let decimal: Parser<DigitSeq option, unit> = opt (attempt (pchar '.' >>. digitSeq))
 
         pipe2 integer decimal Numeral.mk
 
-    let stringLit: Parser<StringLit, unit> =
-        let doubleQuote = pchar '"'
+    let private stringLit: Parser<StringLit, unit> =
+        let doubleQuote = attempt (syntaxSymbol "\"")
         let unescaped = noneOf [ '"'; '\\' ]
         let escapeSequences = [ "\\\\", '\\'; "\\\"", '"'; "\\n", '\n' ]
         let escaped = choice (escapeSequences |> List.map (fun (s, c) -> pstring s >>% c))
 
         let content = manyChars (unescaped <|> escaped)
 
-        content |> between doubleQuote doubleQuote |>> StringLit
+        between doubleQuote doubleQuote content |>> StringLit
 
-    let varNameHead: Parser<char, unit> = satisfy (fun c -> isLetter c || c = '_')
+    let private varNameHead: Parser<char, unit> =
+        satisfy (fun c -> isLetter c || c = '_')
 
-    let varNameTail: Parser<char, unit> =
+    let private varNameTail: Parser<char, unit> =
         satisfy (fun c -> isLetter c || isDigit c || c = '_')
 
-    let varNameSegment: Parser<string, unit> =
+    let private varNameSegment: Parser<string, unit> =
         pipe2 varNameHead (manyChars varNameTail) (fun h t -> string h + t)
+        >>= (fun s ->
+            if keywords |> Set.contains s then
+                fail "Invalid variable name."
+            else
+                preturn s)
 
-    let varName: Parser<VarName, unit> = varNameSegment |>> VarName.mk
+    let private varName: Parser<VarName, unit> = varNameSegment |>> VarName.mk
 
-    let namespaceVarName: Parser<NamespaceVarName, unit> =
+    let private namespaceVarName: Parser<NamespaceVarName, unit> =
         pipe2 (sepBy1 varNameSegment (syntaxSymbol ".")) varNameSegment NamespaceVarName.mk
 
-    let var: Parser<Var, unit> =
-        choice [ varName |>> Var.NoNamespace; namespaceVarName |>> Var.Namespace ]
+    let private var: Parser<Var, unit> =
+        whitespace
+        >>. choice
+            [ attempt varName |>> Var.NoNamespace
+              attempt namespaceVarName |>> Var.Namespace ]
 
-    let unOpName: Parser<UnOpName, unit> =
+    let private unOpName: Parser<UnOpName, unit> =
         choice (Operators.unOps |> Seq.map pstring) |>> UnOpName
 
-    let unOp: Parser<UnOp, unit> = spaces >>. unOpName |>> UnOp.mk
+    let private unOp: Parser<UnOp, unit> = whitespace >>. unOpName |>> UnOp.mk
 
-    let binOpName: Parser<BinOpName, unit> =
+    let private binOpName: Parser<BinOpName, unit> =
         anyOf Operators.binOpChars |> many1Chars |>> BinOpName
 
-    let binOp: Parser<BinOp, unit> = spaces >>. binOpName |>> BinOp.mk
+    let private binOp: Parser<BinOp, unit> = whitespace >>. binOpName |>> BinOp.mk
 
-    let pattern: Parser<Pattern, unit> =
+    let private pattern: Parser<Pattern, unit> =
         let numeral = numeral |>> Pattern.Numeral
         let stringLit = stringLit |>> Pattern.StringLit
-        let variable = var |>> Pattern.Variable
-        let wildcard = pchar '_' >>% Pattern.Wildcard
-        choice [ numeral; stringLit; variable; wildcard ]
+        let variable = attempt var |>> Pattern.Variable
+        let wildcard = attempt (syntaxSymbol "_") >>% Pattern.Wildcard
+        whitespace >>. choice [ numeral; stringLit; attempt variable; wildcard ]
 
-    let prim: Parser<Expr, unit> =
+    let private prim: Parser<Expr, unit> =
         let numeral = numeral |>> Expr.Numeral
         let stringLit = stringLit |>> Expr.StringLit
         let variable = var |>> Expr.Variable
 
-        spaces >>. choice [ attempt numeral; attempt stringLit; attempt variable ]
+        whitespace >>. choice [ attempt numeral; attempt stringLit; attempt variable ]
 
-    let rec single () : Parser<Expr, unit> = choice [ parenthesized (); prim ]
+    let rec private statement
+        (binOpSeq: (unit -> Parser<Expr, unit>) -> Parser<Expr, unit>)
+        (expr: unit -> Parser<Expr, unit>)
+        (block: Parser<Statement, unit> -> Parser<Block, unit>)
+        : Parser<Statement, unit> =
+        let let_: Parser<Statement, unit> =
+            parse.Delay(fun () ->
+                let pat = keyword "let" >>. pattern
+                let expr = syntaxSymbol "=" >>. expr ()
 
-    and parenthesized () : Parser<Expr, unit> =
-        attempt (syntaxSymbol "(") >>. binOpSeq .>> syntaxSymbol ")"
+                pat .>>. expr |>> Let)
 
-    and exprSeq: Parser<Expr, unit> =
-        let fn = single ()
-        let args = many (attempt (single ()))
+        let defAssign: Parser<Statement, unit> =
+            parse.Delay(fun () ->
+                let pat = attempt pattern
+                let expr = attempt (syntaxSymbol ":=") >>. expr ()
 
-        fn .>>. args
-        |>> (fun (fn, args) -> if args = [] then fn else Expr.Apply(fn, args))
+                pat .>>. expr |>> Let)
 
-    and unOpApplied: Parser<Expr, unit> =
-        let op = attempt unOp
-        let arg = exprSeq
+        let var_: Parser<Statement, unit> =
+            parse.Delay(fun () ->
+                let pat = keyword "var" >>. pattern
+                let expr = syntaxSymbol "=" >>. expr ()
 
-        op .>>. arg |>> (fun (op, arg) -> Expr.UnOpApplied(op, arg))
+                pat .>>. expr |>> Var)
 
-    and term: Parser<Expr, unit> = choice [ unOpApplied; exprSeq ]
+        let gets_: Parser<Statement, unit> =
+            parse.Delay(fun () ->
+                let pat = pattern
+                let expr = (attempt (syntaxSymbol "<-") <|> syntaxSymbol "=") >>. expr ()
 
-    and binOpSeq: Parser<Expr, unit> =
-        let head = term
-        let tail = many (attempt (binOp .>>. term)) |>> Deque.ofSeq
-        let opSeq = pipe2 head tail Operators.OpSeq.mk
-        let fold = Operators.fold Operators.operatorTable
+                pat .>>. expr |>> Gets)
 
-        let resultFold =
-            Option.map preturn >> Option.defaultValue (fail "Invalid operator sequence.")
+        let do_: Parser<Statement, unit> =
+            parse.Delay(fun () -> keyword "do" >>. expr () |>> Do)
 
-        opSeq |>> fold >>= resultFold
+        let for_: Parser<Statement, unit> =
+            parse.Delay(fun () ->
+                let pat = keyword "for" >>. pattern
+                let range = syntaxSymbol "in" >>. binOpSeq expr
+                let block = block (statement binOpSeq expr block) .>> keyword "end"
 
-    let expr: Parser<Expr, unit> = binOpSeq
+                pipe3 pat range block (fun pat range block -> For(pat, range, block)))
+
+        let return_: Parser<Statement, unit> =
+            parse.Delay(fun () ->
+                let expr = keyword "return" >>. expr ()
+
+                expr |>> Return)
+
+        let rawExpr: Parser<Statement, unit> = parse.Delay(fun () -> expr () |>> RawExpr)
+
+        parse.Delay(fun () ->
+            choice
+                [ attempt let_
+                  attempt var_
+                  attempt defAssign
+                  attempt gets_
+                  attempt do_
+                  attempt for_
+                  attempt return_
+                  rawExpr ])
+
+    let private block (statement: Parser<Statement, unit>) : Parser<Block, unit> =
+        let statementOrEmpty = choice [ attempt statement |>> Some; whitespace >>% None ]
+        parse.Delay(fun () -> many (attempt (statementOrEmpty .>> linebreak)) |>> List.choose id |>> Block.mk)
+
+    let rec private binOpSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+        let single (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+            let parenthesized: Parser<Expr, unit> =
+                parse.Delay(fun () -> attempt (syntaxSymbol "(") >>. expr () .>> syntaxSymbol ")")
+
+            parse.Delay(fun () -> choice [ parenthesized; prim ])
+
+        let exprSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+            parse.Delay(fun () ->
+                let fn = single expr
+                let args = many (attempt (single expr))
+
+                fn .>>. args
+                |>> (fun (fn, args) -> if args = [] then fn else Expr.Apply(fn, args)))
+
+        let unOpApplied (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+            parse.Delay(fun () ->
+                let op = attempt unOp
+                let arg = exprSeq expr
+
+                op .>>. arg |>> (fun (op, arg) -> Expr.UnOpApplied(op, arg)))
+
+        let term (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+            parse.Delay(fun () -> choice [ unOpApplied expr; exprSeq expr ])
+
+        parse.Delay(fun () ->
+            let head = term expr
+            let tail = many (attempt (binOp .>>. term expr)) |>> Deque.ofSeq
+            let opSeq = pipe2 head tail Operators.OpSeq.mk
+            let fold = Operators.fold Operators.operatorTable
+
+            let resultFold =
+                Option.map preturn >> Option.defaultValue (fail "Invalid operator sequence.")
+
+            opSeq |>> fold >>= resultFold)
+
+    let rec private expr () : Parser<Expr, unit> =
+        let statement = statement binOpSeq expr block
+        let block = block statement
+
+        let if_ (expr: unit -> Parser<Expr, unit>) (block: Parser<Block, unit>) : Parser<Expr, unit> =
+            parse.Delay(fun () ->
+                let if_ = attempt (keyword "if") >>. binOpSeq expr .>>. block
+                let elif_ = attempt (keyword "elif") >>. binOpSeq expr .>>. block
+                let else_ = attempt (keyword "else") >>. block .>> keyword "end"
+
+                let cases = if_ .>>. many elif_ |>> (fun (if_, elifSeq) -> if_ :: elifSeq)
+
+                cases .>>. opt else_ |>> Expr.If)
+
+        let if_ = if_ expr block
+
+        let block = keyword "begin" >>. block |>> Expr.Block .>> keyword "end"
+
+        let raw = binOpSeq expr
+        parse.Delay(fun () -> whitespace >>. choice [ if_; block; raw ])
+
+    //
+
+    let program = many1 (statement binOpSeq expr block .>> linebreak)
 
 //
 
@@ -326,12 +454,12 @@ let path = "sample/sample.phis"
 
 let source = System.IO.File.ReadAllText path
 
+// let source = "var x = 0; var y = 1; x + y"
+
 printfn "%s" source
 
-let text = "+ 1 + 2 * - add 2 1"
+let parser = Parser.program
 
-let parser = Parser.expr
+let ast = source |> FParsec.CharParsers.run parser
 
-let expr = text |> FParsec.CharParsers.run parser
-
-printfn "%A" expr
+printfn "%A" ast
