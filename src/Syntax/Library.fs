@@ -86,6 +86,15 @@ type BinOp =
 
     member this.Compose = BinOp.compose this
 
+type Key =
+    { name: VarName }
+
+    static member mk name = { name = name }
+
+    static member compose(this: Key) = this.name.Name
+
+    member this.Compose = Key.compose this
+
 [<RequireQualifiedAccess>]
 type Pattern =
     | Numeral of Numeral
@@ -102,6 +111,7 @@ type Expr =
     | Variable of Var
     | Array of Expr list
     | Tuple of Expr list
+    | Dictionary of (Key * Expr) list
     | UnOp of UnOp
     | UnOpApplied of op: UnOp * arg: Expr
     | BinOp of BinOp
