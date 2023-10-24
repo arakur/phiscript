@@ -70,7 +70,20 @@ let rec private transpileExpr (expr: Expr) =
                 | Some block -> [ "else"; block |> transpileBlock ]
 
             if' @ elif' @ else' |> String.concat " "
-    | Expr.Match(expr, cases) -> failwith "Not Implemented"
+    | Expr.Match(expr, cases) ->
+        let header =
+            [ "match"; "(" + (expr |> transpileExpr) + ")"; "{" ] |> String.concat " "
+
+        let cases' =
+            cases
+            |> List.map (fun (pat, block) -> [ pat |> transpilePattern; block |> transpileBlock ] |> String.concat " ")
+            |> List.map (fun s -> "    " + s + "\n")
+            |> String.concat ""
+
+        let footer = "}"
+
+        header + cases' + footer
+
     | Expr.Lambda(pat, body) ->
         let args =
             match pat with
