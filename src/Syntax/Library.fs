@@ -86,6 +86,8 @@ type BinOp =
 
     member this.Compose = BinOp.compose this
 
+type Key = string
+
 [<RequireQualifiedAccess>]
 type Pattern =
     | Numeral of Numeral
@@ -102,6 +104,7 @@ type Expr =
     | Variable of Var
     | Array of Expr list
     | Tuple of Expr list
+    | Dictionary of (Key * Expr) list
     | UnOp of UnOp
     | UnOpApplied of op: UnOp * arg: Expr
     | BinOp of BinOp
