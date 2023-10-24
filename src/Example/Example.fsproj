@@ -15,4 +15,10 @@
     <PackageReference Include="FSharpx.Collections" Version="3.1.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Parser\Parser.fsproj" />
+    <ProjectReference Include="..\Transpiler\Transpiler.fsproj" />
+    <ProjectReference Include="..\Syntax\Syntax.fsproj" />
+  </ItemGroup>
+
 </Project>
