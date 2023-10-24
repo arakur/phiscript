@@ -12,6 +12,8 @@ let private linebreak: Parser<unit, unit> =
 
 let private keyword (name: string) : Parser<unit, unit> = whitespace >>. pstring name >>% ()
 
+let private keyword' (name: string) : Parser<unit, unit> = attempt (keyword name)
+
 let private syntaxSymbol (name: string) : Parser<unit, unit> = whitespace >>. pstring name >>% ()
 
 let private digitSeq: Parser<DigitSeq, unit> = many1Satisfy isDigit |>> DigitSeq
@@ -49,7 +51,8 @@ let private varNameSegment: Parser<string, unit> =
 let private varName: Parser<VarName, unit> = varNameSegment |>> VarName.mk
 
 let private namespaceVarName: Parser<NamespaceVarName, unit> =
-    pipe2 (many1 (attempt (varNameSegment .>> syntaxSymbol "."))) varNameSegment NamespaceVarName.mk
+    let pathSegment = attempt (varNameSegment .>> syntaxSymbol "::")
+    pipe2 (many1 pathSegment) varNameSegment NamespaceVarName.mk
 
 let private var: Parser<Var, unit> =
     whitespace
@@ -109,7 +112,7 @@ let rec private statement
     : Parser<Statement, unit> =
     let let_: Parser<Statement, unit> =
         parse.Delay(fun () ->
-            let pat = keyword "let" >>. pattern
+            let pat = keyword' "let" >>. pattern
             let expr = syntaxSymbol "=" >>. expr ()
 
             pat .>>. expr |>> Let)
@@ -123,7 +126,7 @@ let rec private statement
 
     let var_: Parser<Statement, unit> =
         parse.Delay(fun () ->
-            let pat = keyword "var" >>. pattern
+            let pat = keyword' "var" >>. pattern
             let expr = syntaxSymbol "=" >>. expr ()
 
             pat .>>. expr |>> Var)
@@ -136,11 +139,11 @@ let rec private statement
             pat .>>. expr |>> Gets)
 
     let do_: Parser<Statement, unit> =
-        parse.Delay(fun () -> keyword "do" >>. expr () |>> Do)
+        parse.Delay(fun () -> keyword' "do" >>. expr () |>> Do)
 
     let for_: Parser<Statement, unit> =
         parse.Delay(fun () ->
-            let pat = keyword "for" >>. pattern
+            let pat = keyword' "for" >>. pattern
             let range = syntaxSymbol "in" >>. binOpSeq expr
             let block = block (statement binOpSeq expr block) .>> keyword "end"
 
@@ -148,22 +151,13 @@ let rec private statement
 
     let return_: Parser<Statement, unit> =
         parse.Delay(fun () ->
-            let expr = keyword "return" >>. expr ()
+            let expr = keyword' "return" >>. expr ()
 
             expr |>> Return)
 
     let rawExpr: Parser<Statement, unit> = parse.Delay(fun () -> expr () |>> RawExpr)
 
-    parse.Delay(fun () ->
-        choice
-            [ attempt let_
-              attempt var_
-              attempt defAssign
-              attempt gets_
-              attempt do_
-              attempt for_
-              attempt return_
-              rawExpr ])
+    parse.Delay(fun () -> choice [ let_; var_; attempt defAssign; attempt gets_; do_; for_; return_; rawExpr ])
 
 let private block (statement: Parser<Statement, unit>) : Parser<Block, unit> =
     let statementOrEmpty = choice [ attempt statement |>> Some; whitespace >>% None ]
@@ -223,9 +217,9 @@ let rec private expr () : Parser<Expr, unit> =
 
     let if_ (expr: unit -> Parser<Expr, unit>) (block: Parser<Block, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
-            let if_ = attempt (keyword "if") >>. binOpSeq expr .>>. block
-            let elif_ = attempt (keyword "elif") >>. binOpSeq expr .>>. block
-            let else_ = attempt (keyword "else") >>. block .>> keyword "end"
+            let if_ = keyword' "if" >>. binOpSeq expr .>>. block
+            let elif_ = keyword' "elif" >>. binOpSeq expr .>>. block
+            let else_ = keyword' "else" >>. block .>> keyword "end"
 
             let cases = if_ .>>. many elif_ |>> (fun (if_, elifSeq) -> if_ :: elifSeq)
 
@@ -233,7 +227,7 @@ let rec private expr () : Parser<Expr, unit> =
 
     let match_ (expr: unit -> Parser<Expr, unit>) (block: Parser<Block, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
-            let match_ = attempt (keyword "match") >>. expr ()
+            let match_ = keyword' "match" >>. expr ()
             let case = pattern .>>. block
             let cases = many1 case .>> keyword "end"
 
