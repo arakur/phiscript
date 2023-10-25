@@ -19,6 +19,7 @@
     <ProjectReference Include="..\Parser\Parser.fsproj" />
     <ProjectReference Include="..\Transpiler\Transpiler.fsproj" />
     <ProjectReference Include="..\Syntax\Syntax.fsproj" />
+    <ProjectReference Include="..\..\Format\Format.fsproj" />
   </ItemGroup>
 
 </Project>

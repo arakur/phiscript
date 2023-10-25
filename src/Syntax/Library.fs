@@ -125,6 +125,7 @@ type Expr =
 
 and Statement =
     | Let of pat: Pattern * expr: Expr
+    | DefAssign of pat: Pattern * expr: Expr
     | Var of pat: Pattern * expr: Expr
     | Gets of pat: Pattern * expr: Expr
     | Do of expr: Expr
