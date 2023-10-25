@@ -163,7 +163,12 @@ let rec private statement
 
 let private block (statement: Parser<Statement, unit>) : Parser<Block, unit> =
     let statementOrEmpty = choice [ attempt statement |>> Some; whitespace >>% None ]
-    parse.Delay(fun () -> many (attempt (statementOrEmpty .>> linebreak)) |>> List.choose id |>> Block.mk)
+
+    parse.Delay(fun () ->
+        statementOrEmpty .>>. many (linebreak >>. statementOrEmpty)
+        |>> (fun (head, tail) -> head :: tail)
+        |>> List.choose id
+        |>> Block.mk)
 
 let rec private binOpSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
     let parenthesized (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
@@ -224,8 +229,9 @@ let rec private expr () : Parser<Expr, unit> =
 
     let if_ (expr: unit -> Parser<Expr, unit>) (block: Parser<Block, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
-            let if_ = keyword' "if" >>. binOpSeq expr .>>. block
-            let elif_ = keyword' "elif" >>. binOpSeq expr .>>. block
+            let then_ = keyword' "then" <|> (whitespace >>. linebreak)
+            let if_ = keyword' "if" >>. binOpSeq expr .>> then_ .>>. block
+            let elif_ = keyword' "elif" >>. binOpSeq expr .>> then_ .>>. block
             let else_ = keyword' "else" >>. block .>> keyword "end"
 
             let cases = if_ .>>. many elif_ |>> (fun (if_, elifSeq) -> if_ :: elifSeq)
@@ -250,7 +256,7 @@ let rec private expr () : Parser<Expr, unit> =
             let pair' = choice [ attempt pair |>> Some; whitespace >>% None ]
 
             let pairs =
-                pair' .>>. many (attempt (newline >>. pair'))
+                pair' .>>. many (attempt (whitespace >>. linebreak >>. pair'))
                 |>> (fun (head, tail) -> head :: tail)
                 |>> List.choose id
 

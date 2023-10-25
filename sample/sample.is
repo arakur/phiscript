@@ -6,16 +6,19 @@ for (let i, 20) {
     } else {
         <: ("too big!")
     }
-    let f = @(x, y) {
-        Core:add(x, y)
-    }
-    let z = f(x, y)
+    let z = (@(x, y) {
+        (Core:add)(x, y)
+    })(x, y)
     x = y
     y = z
 }
 let xy = [x y]
 let dict = {
-    foo: 334
+    foo: if (x) == (0) {
+        42
+    } else {
+        334
+    }
     bar: {
         baz: "ok"
     }

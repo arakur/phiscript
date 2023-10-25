@@ -150,7 +150,17 @@ and Block =
 //
 module Keywords =
     let keywords =
-        [ "let"; "var"; "do"; "return"; "if"; "elif"; "else"; "match"; "for"; "end" ]
+        [ "let"
+          "var"
+          "do"
+          "return"
+          "if"
+          "then"
+          "elif"
+          "else"
+          "match"
+          "for"
+          "end" ]
         |> Set.ofList
 
 module Operators =

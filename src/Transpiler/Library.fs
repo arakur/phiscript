@@ -42,7 +42,7 @@ let rec private transpileExpr (expr: Expr) =
         // TODO: 現状の実装は別の場所で定義したタプルを入力した場合に正しくならないので，型情報を使って正しくする．
         match args with
         | [ Expr.Tuple tuple ] ->
-            let fun_' = transpileExpr fun_
+            let fun_' = transpileExpr fun_ |> sprintf "(%s)"
 
             let args' = tuple |> List.map transpileExpr |> String.concat ", " |> sprintf "(%s)"
 
