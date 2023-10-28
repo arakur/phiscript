@@ -1,6 +1,3 @@
-#import "./typst-theorems/theorems.typ": *
-#import "./typst-theorems/basic.typ": *
-
 #set text(font: ("Constantia", "AR Ming B"))
 #show strong: set text(font: ("Constantia", "Yu Gothic"))
 
