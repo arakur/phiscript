@@ -2,4 +2,4 @@ aiscript
 .fake
 bin
 obj
-typst-theorems
+src/Types/typst-theorems
