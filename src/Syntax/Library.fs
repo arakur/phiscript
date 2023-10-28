@@ -96,12 +96,35 @@ type Key =
     member this.Compose = Key.compose this
 
 [<RequireQualifiedAccess>]
+type LiteralType =
+    | Numeral of Numeral
+    | StringLit of StringLit
+    | True
+    | False
+
+[<RequireQualifiedAccess>]
+type Type =
+    | Literal of LiteralType
+    | Int
+    | Number
+    | String
+    | Bool
+    | Null
+    | Void
+    | SizedArray of Type list
+    | Array of Type
+    | Dict of Map<Key, Type>
+    | Union of lhs: Type * rhs: Type
+    | Function of args: Type list * ret: Type
+    | Any
+    | Some
+
+[<RequireQualifiedAccess>]
 type Pattern =
     | Numeral of Numeral
     | StringLit of StringLit
-    | Variable of Var
+    | Variable of var: Var * ty: Type option
     | Array of Pattern list
-    | Tuple of Pattern list
     | Wildcard
 
 [<RequireQualifiedAccess>]
@@ -110,7 +133,6 @@ type Expr =
     | StringLit of StringLit
     | Variable of Var
     | Array of Expr list
-    | Tuple of Expr list
     | Dictionary of (Key * Expr) list
     | FieldAccess of expr: Expr * key: Key
     | UnOp of UnOp
@@ -118,10 +140,12 @@ type Expr =
     | BinOp of BinOp
     | BinOpApplied of op: BinOp * lhs: Expr * rhs: Expr
     | Apply of fun_: Expr * args: Expr list
-    | Lambda of pat: Pattern * body: Expr
+    | Lambda of args: Pattern list * body: Expr
     | EvalBlock of Block
     | If of cases: (Expr * Block) list * else_: Block option
     | Match of expr: Expr * cases: (Pattern * Block) list
+    | Coerce of expr: Expr * ty: Type
+    | As of expr: Expr * ty: Type
 
 and Statement =
     | Let of pat: Pattern * expr: Expr

@@ -1,13 +1,14 @@
 ﻿printfn "input file path:"
-let path = System.Console.ReadLine()
+// let path = System.Console.ReadLine()
+let path = "sample/sample.phis" // DEBUG
 
 printfn "output file path:"
-let outputPath = System.Console.ReadLine()
+// let outputPath = System.Console.ReadLine()
+let outputPath = "sample/sample.is" // DEBUG
 
 let source = System.IO.File.ReadAllText path
 
 let parser = Parser.program
-
 let ast = source |> FParsec.CharParsers.run parser
 
 match ast with

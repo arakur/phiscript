@@ -8,9 +8,8 @@ let rec private transpilePattern (pattern: Pattern) =
     match pattern with
     | Pattern.Numeral numeral -> numeral.Compose
     | Pattern.StringLit stringLit -> stringLit.Compose
-    | Pattern.Variable var -> var.Compose
+    | Pattern.Variable(var, _) -> var.Compose
     | Pattern.Array array -> array |> List.map transpilePattern |> String.concat ", " |> sprintf "[%s]"
-    | Pattern.Tuple tuple -> failwith "Not Implemented"
     | Pattern.Wildcard -> "*"
 
 let rec private transpileExpr (expr: Expr) =
@@ -19,7 +18,6 @@ let rec private transpileExpr (expr: Expr) =
     | Expr.StringLit stringLit -> stringLit.Compose
     | Expr.Variable var -> var.Compose
     | Expr.Array array -> array |> List.map transpileExpr |> String.concat " " |> sprintf "[%s]"
-    | Expr.Tuple tuple -> tuple |> List.map transpileExpr |> String.concat " " |> sprintf "[%s]"
     | Expr.Dictionary dict ->
         dict
         |> List.map (fun (key, value) -> (key.Compose, transpileExpr value) ||> sprintf "%s: %s")
@@ -40,20 +38,9 @@ let rec private transpileExpr (expr: Expr) =
         |> String.concat " "
     | Expr.Apply(fun_, args) ->
         // TODO: 現状の実装は別の場所で定義したタプルを入力した場合に正しくならないので，型情報を使って正しくする．
-        match args with
-        | [ Expr.Tuple tuple ] ->
-            let fun_' = transpileExpr fun_ |> sprintf "(%s)"
-
-            let args' = tuple |> List.map transpileExpr |> String.concat ", " |> sprintf "(%s)"
-
-            fun_' + args'
-        | _ ->
-            let fun_' = transpileExpr fun_
-
-            let args' =
-                args |> List.map transpileExpr |> List.map (sprintf "(%s)") |> String.concat ""
-
-            fun_' + args'
+        let fun_' = transpileExpr fun_
+        let args' = args |> List.map transpileExpr |> String.concat ", "
+        sprintf "(%s)(%s)" fun_' args'
     | Expr.EvalBlock block -> [ "eval"; block |> transpileBlock ] |> String.concat " "
     | Expr.If(cases, else_) ->
         match cases with
@@ -84,13 +71,14 @@ let rec private transpileExpr (expr: Expr) =
 
         header + cases' + footer
 
-    | Expr.Lambda(pat, body) ->
-        let args =
-            match pat with
-            | Pattern.Tuple tuple -> tuple |> List.map transpilePattern |> String.concat ", "
-            | Pattern.Variable var -> var.Compose
-            | Pattern.Wildcard -> "_"
-            | _ -> failwith "Not Implemented"
+    | Expr.Lambda(args, body) ->
+        let args' =
+            args
+            |> List.map (function
+                | Pattern.Variable(var, _) -> var.Compose
+                | Pattern.Wildcard -> "_"
+                | _ -> failwith "Not Implemented")
+            |> String.concat ", "
 
         let body' =
             body
@@ -99,7 +87,9 @@ let rec private transpileExpr (expr: Expr) =
             |> Seq.map (sprintf "    %s\n")
             |> String.concat ""
 
-        sprintf "@(%s) {\n%s}" args body'
+        sprintf "@(%s) {\n%s}" args' body'
+    | Expr.Coerce(expr, ty) -> failwith "Not Implemented"
+    | Expr.As(expr, ty) -> failwith "Not Implemented"
 
 and private transpileStatement (statement: Statement) =
     match statement with
@@ -107,15 +97,15 @@ and private transpileStatement (statement: Statement) =
     | RawExpr expr -> transpileExpr expr
     | Let(pat, expr) ->
         match pat with
-        | Pattern.Variable var -> [ "let"; var.Compose; "="; transpileExpr expr ] |> String.concat " "
+        | Pattern.Variable(var, _) -> [ "let"; var.Compose; "="; transpileExpr expr ] |> String.concat " "
         | _ -> failwith "Not Implemented"
     | Var(pat, expr) ->
         match pat with
-        | Pattern.Variable var -> [ "var"; var.Compose; "="; transpileExpr expr ] |> String.concat " "
+        | Pattern.Variable(var, _) -> [ "var"; var.Compose; "="; transpileExpr expr ] |> String.concat " "
         | _ -> failwith "Not Implemented"
     | Gets(pat, expr) ->
         match pat with
-        | Pattern.Variable var -> [ var.Compose; "="; transpileExpr expr ] |> String.concat " "
+        | Pattern.Variable(var, _) -> [ var.Compose; "="; transpileExpr expr ] |> String.concat " "
         | _ -> failwith "Not Implemented"
     | For(pat, range, block) ->
         let loop = $"(let {pat |> transpilePattern}, {range |> transpileExpr})"
