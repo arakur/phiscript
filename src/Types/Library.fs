@@ -17,6 +17,9 @@ module private Result =
             (Ok [])
         |> Result.map List.rev
 
+    let assertWith (condition: bool) (error: 'Error) =
+        if condition then Ok() else Error(error)
+
 module Literal =
     let typeOf (lit: LiteralType) =
         match lit with
@@ -36,8 +39,14 @@ type TypingError =
     | IncompatibleAssignment of source: Type * target: Type
     | ImmutableVariableReassigned of var: Var
     | NotAFunction of Type
+    | ArgumentNumberMismatch of expected: int * actual: int
+    | ArgumentTypeMismatch of index: int * expected: Type * actual: Type
     | CannotIndexWith of index: Type * target: Type
     | CannotAccessWith of key: Key * target: Type
+    | IfConditionTypeNotCompatibleWithBoolean of Type
+    | InvalidForRange of Type
+    | IncompatiblePattern of pattern: Pattern * target: Type
+    | IncompatibleCoercion of source: Type * target: Type
 
 type Typing = Result<Type, TypingError>
 
@@ -184,6 +193,19 @@ module Type =
             | Some _ -> Type.Number |> Ok
             | None -> Type.Int |> Ok
 
+    module Pattern =
+        let rec typing (state: TypingState) (pattern: Pattern) =
+            match pattern with
+            | Pattern.Numeral numeral -> numeral |> Numeral.typing
+            | Pattern.StringLit _ -> Ok Type.String
+            | Pattern.Variable(_, ty) -> Ok(ty |> Option.defaultValue Type.Any)
+            | Pattern.Array array ->
+                array
+                |> List.map (typing state)
+                |> Result.sequence
+                |> Result.map Type.SizedArray
+            | Pattern.Wildcard -> Ok Type.Any
+
     module Expr =
         let rec typing (state: TypingState) (expr: Expr) =
             match expr with
@@ -305,13 +327,18 @@ module Type =
                     | Type.Function(expectedArgTypes, retType) ->
                         let! argTypes = args |> List.map (typing state) |> Result.sequence
 
-                        if List.length expectedArgTypes = List.length argTypes then
-                            if List.forall2 isCompatible argTypes expectedArgTypes then
-                                return retType
-                            else
-                                return! Error(failwith "TODO")
-                        else
-                            return! Error(failwith "TODO")
+                        do!
+                            Result.assertWith
+                                (List.length expectedArgTypes = List.length argTypes)
+                                (ArgumentNumberMismatch(List.length expectedArgTypes, List.length argTypes))
+
+                        for index, (argTy, expectedTy) in Seq.zip argTypes expectedArgTypes |> Seq.indexed do
+                            do!
+                                Result.assertWith
+                                    (isCompatible argTy expectedTy)
+                                    (ArgumentTypeMismatch(index, expectedTy, argTy))
+
+                        return retType
                     | Type.Any -> return Type.Any
                     | _ -> return! Error(NotAFunction funType)
                 }
@@ -324,7 +351,7 @@ module Type =
                         if isCompatible ty Type.Bool then
                             Ok block
                         else
-                            Error(failwith "TODO"))
+                            Error(IfConditionTypeNotCompatibleWithBoolean ty))
                     |> Result.bind (typingBlock state)
 
                 monad {
@@ -339,7 +366,20 @@ module Type =
 
                     return retTy
                 }
-            | Expr.Match(expr, cases) -> failwith "Not Implemented"
+            | Expr.Match(expr, cases) ->
+                let caseType (exprTy: Type) (pat: Pattern, block: Block) : Result<Type, TypingError> =
+                    monad {
+                        let! patTy = pat |> Pattern.typing state
+                        let! blockTy = typingBlock state block
+                        do! Result.assertWith (isCompatible patTy exprTy) (IncompatiblePattern(pat, exprTy))
+                        return blockTy
+                    }
+
+                monad {
+                    let! ty = expr |> typing state
+                    let! cases' = cases |> List.map (caseType ty) |> Result.sequence
+                    return cases' |> Seq.reduce (fun lhs rhs -> Type.Union(lhs, rhs))
+                }
             | Expr.Coerce(expr, ty) ->
                 monad {
                     let! exprType = expr |> typing state
@@ -347,7 +387,7 @@ module Type =
                     if isCompatible exprType ty then
                         return ty
                     else
-                        return! Error <| failwith "Not Implemented"
+                        return! Error(IncompatibleCoercion(exprType, ty))
                 }
             | Expr.As(_, ty) -> Ok ty
 
@@ -386,12 +426,11 @@ module Type =
                 monad {
                     let! ty' = typing state expr |> Result.map widen
 
-                    if ty.IsNone then
-                        return TypingState.addVar var ty' Mutable state
-                    elif isCompatible ty' ty.Value then
-                        return TypingState.addVar var ty.Value Mutable state
-                    else
-                        return! Error(IncompatibleAssignment(ty.Value, ty'))
+                    match ty with
+                    | None -> return TypingState.addVar var ty' Mutable state
+                    | Some ty ->
+                        do! Result.assertWith (isCompatible ty' ty) (IncompatibleAssignment(ty, ty'))
+                        return TypingState.addVar var ty Mutable state
                 }
             | Var(_, _) -> failwith "Not Implemented"
             | Gets(Pattern.Variable(var, ty), expr) ->
@@ -399,14 +438,15 @@ module Type =
                     let! { Type = ty'; Mutability = mutability } = state.FindVar var
                     let! ty'' = typing state expr
 
-                    if mutability = Immutable then
-                        return! Error(ImmutableVariableReassigned var)
-                    elif not (isCompatible ty'' ty') then
-                        return! Error(IncompatibleAssignment(ty', ty''))
-                    elif ty.IsSome && not (isCompatible ty'' ty.Value) then
-                        return! Error(IncompatibleAssignment(ty.Value, ty''))
-                    else
-                        return state
+                    do! Result.assertWith (mutability = Mutable) (ImmutableVariableReassigned var)
+                    do! Result.assertWith (isCompatible ty'' ty') (IncompatibleAssignment(ty', ty''))
+
+                    do!
+                        Result.assertWith
+                            (ty.IsNone || isCompatible ty'' ty.Value)
+                            (IncompatibleAssignment(ty.Value, ty''))
+
+                    return state
                 }
             | Gets(_, _) -> failwith "Not Implemented"
             | Do expr -> typing state expr |> Result.map (fun _ -> state)
@@ -417,18 +457,18 @@ module Type =
                     let isRangeTyCompatible = isCompatible rangeTy Type.Int
                     let isTyCompatible = ty.IsNone || isCompatible ty.Value Type.Int
 
-                    if isRangeTyCompatible && isTyCompatible then
-                        let state' =
-                            TypingState.addVar var (ty |> Option.defaultValue Type.Int) Immutable state // REMARK: Variables in for-loop are always immutable.
+                    do! Result.assertWith isRangeTyCompatible (InvalidForRange(rangeTy))
+                    do! Result.assertWith isTyCompatible (IncompatibleAssignment(ty.Value, Type.Int))
 
-                        let! state'' =
-                            (Ok state', statements)
-                            ||> Seq.fold (fun state statement ->
-                                state |> Result.bind (fun state -> typingStatement state statement))
+                    let state' =
+                        TypingState.addVar var (ty |> Option.defaultValue Type.Int) Immutable state // REMARK: Variables in for-loop are always immutable.
 
-                        return state''.ExitScopeInto state
-                    else
-                        return! Error <| failwith "TODO"
+                    let! state'' =
+                        (Ok state', statements)
+                        ||> Seq.fold (fun state statement ->
+                            state |> Result.bind (fun state -> typingStatement state statement))
+
+                    return state''.ExitScopeInto state
                 }
             | For(_, _, _) -> failwith "Not Implemented"
             | Return expr ->

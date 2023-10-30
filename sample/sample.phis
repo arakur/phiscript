@@ -5,7 +5,7 @@ for i in 20
     else
         <: "too big!"
     end
-    f: int -> int -> int := (x: int -> y: int -> Core::add(x, y))
+    f := x: int -> y: int -> Core::add(x, y)
     z: int := f x y
     x <- y; y <- z
 end
