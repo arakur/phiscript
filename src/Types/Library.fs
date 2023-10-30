@@ -108,9 +108,19 @@ module Type =
             && isCompatible ret0 ret1
         | _ -> false
 
-    let widen (ty: Type) =
+    let rec widen (ty: Type) =
         match ty with
         | Type.Literal lit -> Literal.typeOf lit
+        | Type.SizedArray tys -> Type.SizedArray(tys |> List.map widen)
+        | Type.Array ty -> Type.Array(widen ty)
+        | Type.Object obj -> Type.Object(obj |> Map.map (fun _key -> widen))
+        | Type.Union(lhs, rhs) ->
+            let lhs' = widen lhs
+            let rhs' = widen rhs
+
+            if isCompatible lhs' rhs' then rhs'
+            elif isCompatible rhs' lhs' then lhs'
+            else Type.Union(lhs', rhs')
         | _ -> ty
 
     type Mutability =
