@@ -215,7 +215,7 @@ module Type =
             // ==================
             //  Γ ⊢ λ: typeOf(λ)
             | Expr.Numeral numeral -> numeral |> Numeral.typing
-            | Expr.StringLit _ -> Ok Type.String
+            | Expr.StringLit stringLit -> Ok(Type.Literal <| LiteralType.StringLit stringLit)
             //  Γ ⊢ e₁: τ₁ ... Γ ⊢ eₙ: τₙ
             // ====================================================
             //  Γ ⊢ { k₁: e₁; ...; kₙ: eₙ }: { k₁: τ₁; ...; kₙ: τₙ }
