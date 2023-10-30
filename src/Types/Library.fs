@@ -309,7 +309,7 @@ module Type =
                         | Key.Index _ -> Ok ty
                         | _ -> Error(CannotAccessWith(key, exprTy))
                     | Type.Any -> Ok Type.Any
-                    | _ -> Error <| failwith "Not Implemented")
+                    | _ -> Error(CannotAccessWith(key, exprTy)))
             | Expr.UnOp(_) -> failwith "Not Implemented"
             | Expr.UnOpApplied(op, arg) ->
                 monad {
