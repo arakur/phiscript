@@ -1,17 +1,31 @@
-let f = @(x, y) {
-    eval {
-        if (x) < (100) {
-            <: (x)
-        } else {
-            <: ("too big!")
-        }
-        [y (x) + (y)]
-    }
-}
-let x = 0
+var x = 0
 var y = 1
 for (let i, 20) {
-    let xy = (f)(x, y)
-    x = (xy)[0]
-    y = (xy)[1]
+    if (x) < (100) {
+        <: (x)
+    } else {
+        <: ("too big!")
+    }
+    let f = @(x) {
+        @(y) {
+            (Core:add)(x, y)
+        }
+    }
+    let z = ((f)(x))(y)
+    x = y
+    y = z
 }
+let xy = [x y]
+(xy)[0]
+(xy)[1]
+let obj = {
+    foo: if (x) == (0) {
+        42
+    } else {
+        334
+    }
+    bar: {
+        baz: "ok"
+    }
+}
+<: (((obj).bar).baz)

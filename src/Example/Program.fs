@@ -72,8 +72,14 @@ and printTypedStatement (typingState: Type.TypingState) (statement: Syntax.State
     | Gets(_, _) ->
         printfn "_ = _ // ERROR: Not Implemented"
         typingState
-    | Do expr ->
-        printfn "do %A" expr
+    | Do expr
+    | RawExpr expr ->
+        let ty = Type.Expr.typing typingState expr
+
+        match ty with
+        | Ok ty -> printfn "do %A: %A" expr ty
+        | Error msg -> printfn "do %A // ERROR: %A" expr msg
+
         typingState
     | For(Pattern.Variable(var, ty), range, statements) ->
         printfn "for %A: %A in %A" var (ty |> Option.defaultValue Type.Int) range
@@ -87,17 +93,19 @@ and printTypedStatement (typingState: Type.TypingState) (statement: Syntax.State
     | Return expr ->
         printfn "return %A" expr
         typingState
-    | RawExpr expr ->
-        printfn "%A" expr
-        typingState
 
 match ast with
 | FParsec.CharParsers.Failure(msg, _, _) -> printfn "FAILED!\n%s" msg
 | FParsec.CharParsers.Success(ast, _, _) ->
     let typingState =
         Type.TypingState.empty
+        |> Type.TypingState.addVar
+            (Var.Namespace { Path = [ "Core" ]; Name = "add" })
+            (Type.Function([ Type.Int; Type.Int ], Type.Int))
+            Type.Mutability.Immutable
         |> Type.TypingState.addUnOp { Name = UnOpName "<:" } Type.Some Type.Void
-        |> Type.TypingState.addBinOp { Name = BinOpName "<" } Type.Int Type.Int Type.Bool
+        |> Type.TypingState.addBinOp { Name = BinOpName "==" } Type.Some Type.Some Type.Bool
+        |> Type.TypingState.addBinOp { Name = BinOpName "<" } Type.Number Type.Number Type.Bool
         |> Type.TypingState.addBinOp { Name = BinOpName "+" } Type.Int Type.Int Type.Int
 
     printTypedAst typingState ast |> ignore

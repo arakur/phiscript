@@ -13,7 +13,7 @@ type Numeral =
 
     static member mkInt integer = { Integer = integer; Decimal = None }
 
-    static member mkFloat integer decimal =
+    static member mkNumber integer decimal =
         { Integer = integer
           Decimal = Some decimal }
 
@@ -24,6 +24,13 @@ type Numeral =
         match this.Decimal with
         | None -> this.Integer.Unwrap
         | Some decimal -> this.Integer.Unwrap + "." + decimal.Unwrap
+
+    member this.IsInt = this.Decimal.IsNone
+
+    member this.TryToInt =
+        match this.IsInt with
+        | true -> this.Integer.Unwrap |> int |> Some
+        | false -> None
 
     member this.Compose = Numeral.compose this
 
@@ -86,12 +93,15 @@ type BinOp =
 
     member this.Compose = BinOp.compose this
 
+[<RequireQualifiedAccess>]
 type Key =
-    { name: VarName }
+    | Index of int
+    | Name of VarName
 
-    static member mk name = { name = name }
-
-    static member compose(this: Key) = this.name.Name
+    static member compose(this: Key) =
+        match this with
+        | Index i -> i.ToString()
+        | Name name -> name.Name
 
     member this.Compose = Key.compose this
 
@@ -113,7 +123,7 @@ type Type =
     | Void
     | SizedArray of Type list
     | Array of Type
-    | Dict of Map<Key, Type>
+    | Object of Map<Key, Type>
     | Union of lhs: Type * rhs: Type
     | Function of args: Type list * ret: Type
     | Any
@@ -133,7 +143,7 @@ type Expr =
     | StringLit of StringLit
     | Variable of Var
     | Array of Expr list
-    | Dictionary of (Key * Expr) list
+    | Object of (Key * Expr) list
     | IndexAccess of expr: Expr * index: Expr
     | FieldAccess of expr: Expr * key: Key
     | UnOp of UnOp

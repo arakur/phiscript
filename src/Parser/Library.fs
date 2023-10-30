@@ -62,7 +62,7 @@ let private var: Parser<Var, unit> =
         [ attempt namespaceVarName |>> Var.Namespace
           attempt varName |>> Var.NoNamespace ]
 
-let key = varName |>> Key.mk
+let key = (varName |>> Key.Name) <|> (pint32 |>> Key.Index)
 
 let private unOpName: Parser<UnOpName, unit> =
     choice (Operators.unOps |> Seq.map pstring) |>> UnOpName
@@ -129,7 +129,7 @@ let rec private type_: Parser<Type, unit> =
 
             single' .>> syntaxSymbol "[]" |>> Type.Array
 
-        let dict (type_: unit -> Parser<Type, unit>) () : Parser<Type, unit> =
+        let obj (type_: unit -> Parser<Type, unit>) () : Parser<Type, unit> =
             let key' = whitespace >>. key
             let keyValue = key' .>> syntaxSymbol ":" .>>. type_ ()
             let keyValue' = choice [ attempt keyValue |>> Some; whitespace >>% None ]
@@ -141,11 +141,11 @@ let rec private type_: Parser<Type, unit> =
 
             syntaxSymbol "{" |> attempt >>. keyValues .>> syntaxSymbol "}"
             |>> Map.ofSeq
-            |>> Type.Dict
+            |>> Type.Object
 
         let function_ (type_: unit -> Parser<Type, unit>) () : Parser<Type, unit> =
             let singleArg =
-                [ sizedArray type_; array type_; dict type_; single ]
+                [ sizedArray type_; array type_; obj type_; single ]
                 |> Seq.map parse.Delay
                 |> Seq.map attempt
                 |> choice
@@ -166,7 +166,7 @@ let rec private type_: Parser<Type, unit> =
                 [ function_ type_
                   sizedArray type_
                   array type_
-                  dict type_
+                  obj type_
                   parenthesized type_
                   single ]
                 |> Seq.map parse.Delay
@@ -183,7 +183,7 @@ let rec private type_: Parser<Type, unit> =
                    function_ type_'
                    sizedArray type_'
                    array type_'
-                   dict type_'
+                   obj type_'
                    parenthesized type_'
                    single ]
                  |> Seq.map parse.Delay
@@ -392,7 +392,7 @@ let rec private expr () : Parser<Expr, unit> =
 
             match_ .>>. cases |>> Expr.Match)
 
-    let dictionary (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
+    let object (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
             let key' = whitespace >>. key
             let value = syntaxSymbol ":" >>. expr ()
@@ -406,7 +406,7 @@ let rec private expr () : Parser<Expr, unit> =
                 |>> List.Cons
                 |>> List.choose id
 
-            attempt (syntaxSymbol "{") >>. pairs .>> syntaxSymbol "}" |>> Expr.Dictionary)
+            attempt (syntaxSymbol "{") >>. pairs .>> syntaxSymbol "}" |>> Expr.Object)
 
     let lambdaExpr (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () -> patternSeq .>> syntaxSymbol "->" |> attempt .>>. expr () |>> Expr.Lambda)
@@ -421,7 +421,7 @@ let rec private expr () : Parser<Expr, unit> =
 
     let array_ = array_ expr
 
-    let dictionary = dictionary expr
+    let object = object expr
 
     let lambdaExpr = lambdaExpr expr
 
@@ -429,8 +429,7 @@ let rec private expr () : Parser<Expr, unit> =
 
     parse.Delay(fun () ->
 
-        whitespace
-        >>. choice [ if_; match_; block; array_; dictionary; lambdaExpr; raw ])
+        whitespace >>. choice [ if_; match_; block; array_; object; lambdaExpr; raw ])
 
 //
 

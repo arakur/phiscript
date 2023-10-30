@@ -16,35 +16,10 @@ module private Result =
             (Ok [])
         |> Result.map List.rev
 
-// [<RequireQualifiedAccess>]
-// type Literal =
-//     | Int of int
-//     | Number of float
-//     | String of string
-//     | True
-//     | False
-
-// [<RequireQualifiedAccess>]
-// type Type =
-//     | Literal of Literal
-//     | Int
-//     | Number
-//     | String
-//     | Bool
-//     | Null
-//     | Void
-//     | SizedArray of Type list
-//     | Array of Type
-//     | Dict of Map<Key, Type>
-//     | Union of lhs: Type * rhs: Type
-//     | Function of args: Type list * ret: Type
-//     | Any
-//     | Some
-
 module Literal =
     let typeOf (lit: LiteralType) =
         match lit with
-        | LiteralType.Numeral numeral -> if numeral.Decimal.IsSome then Type.Number else Type.Int
+        | LiteralType.Numeral numeral -> if numeral.IsInt then Type.Int else Type.Number
         | LiteralType.StringLit _ -> Type.String
         | LiteralType.True
         | LiteralType.False -> Type.Bool
@@ -59,6 +34,9 @@ type TypingError =
     | BinOpArgumentTypeMismatch of op: BinOp * expected: (Type * Type) list * actual: (Type * Type)
     | IncompatibleAssignment of source: Type * target: Type
     | ImmutableVariableReassigned of var: Var
+    | NotAFunction of Type
+    | CannotIndexWith of index: Type * target: Type
+    | CannotAccessWith of key: Key * target: Type
 
 type Typing = Result<Type, TypingError>
 
@@ -105,7 +83,7 @@ module Type =
         //  τ₁ ⪯ σ₁ ... τₙ ⪯ σₙ
         // ===================================================================
         //  { k₁:τ₁; ...; kₙ:τₙ; kₙ₊₁:τₙ₊₁; ...; kₘ:τₘ } ⪯ { k₁:σ₁; ...; kₙ:σₙ }
-        | Type.Dict tys0, Type.Dict tys1 ->
+        | Type.Object tys0, Type.Object tys1 ->
             tys1
             |> Map.toSeq
             |> Seq.forall (fun (key, ty1) ->
@@ -200,6 +178,11 @@ module Type =
         let typing (numeral: Numeral) =
             LiteralType.Numeral numeral |> Type.Literal |> Ok
 
+        let widen (numeral: Numeral) =
+            match numeral.Decimal with
+            | Some _ -> Type.Number |> Ok
+            | None -> Type.Int |> Ok
+
     module Expr =
         let rec typing (state: TypingState) (expr: Expr) =
             match expr with
@@ -213,12 +196,12 @@ module Type =
             //  Γ ⊢ e₁: τ₁ ... Γ ⊢ eₙ: τₙ
             // ====================================================
             //  Γ ⊢ { k₁: e₁; ...; kₙ: eₙ }: { k₁: τ₁; ...; kₙ: τₙ }
-            | Expr.Dictionary dict ->
-                dict
+            | Expr.Object obj ->
+                obj
                 |> List.map (fun (key, value) -> value |> typing state |> Result.map (fun ty -> key, ty))
                 |> Result.sequence
                 |> Result.map Map.ofList
-                |> Result.map Type.Dict
+                |> Result.map Type.Object
             //  Γ, x₁: τ₁, ..., xₙ: τₙ ⊢ e: ρ
             // ===================================================
             //  Γ ⊢ (x₁: τ₁, ..., xₙ: τₙ) -> e: (τ₁, ..., τₙ) -> ρ
@@ -257,29 +240,41 @@ module Type =
 
                     match exprType, indexType with
                     | Type.SizedArray tys, Type.Literal(LiteralType.Numeral numeral) ->
-                        if numeral.Decimal.IsSome then
-                            return! Error <| failwith "TODO"
-                        else
-                            return tys.[int numeral.Integer.Unwrap]
+                        let! index = numeral.TryToInt |> Option.toResultWith (CannotIndexWith(indexType, exprType))
+
+                        return!
+                            tys
+                            |> List.tryItem index
+                            |> Option.toResultWith (CannotIndexWith(indexType, exprType))
                     | Type.SizedArray tys, _ when isCompatible indexType Type.Int ->
                         return tys |> List.reduce (curry Type.Union)
-                    | Type.SizedArray _, _ -> return! Error(failwith "TODO")
                     | Type.Array ty, _ when isCompatible indexType Type.Int -> return ty
-                    | Type.Array _, _ -> return! Error(failwith "TODO")
-                    | Type.Dict dict, Type.Literal(LiteralType.StringLit(StringLit content)) ->
+                    | Type.Object obj, Type.Literal(LiteralType.StringLit(StringLit content)) ->
                         return
-                            dict
-                            |> Map.tryFind { name = VarName.mk content }
+                            obj
+                            |> Map.tryFind (Key.Name <| VarName.mk content)
                             |> Option.defaultValue Type.Some
-                    | Type.Dict _, _ when isCompatible indexType Type.String -> return Type.Some
-                    | Type.Dict _, _ -> return! Error(failwith "TODO")
-                    | _ -> return! Error(failwith "TODO")
+                    | Type.Object _, _ when isCompatible indexType Type.String -> return Type.Some
+                    | Type.Object _, _ -> return! Error(CannotIndexWith(indexType, exprType))
+                    | _ -> return! Error(CannotIndexWith(indexType, exprType))
                 }
             | Expr.FieldAccess(expr, key) ->
                 expr
                 |> typing state
-                |> Result.bind (function
-                    | Type.Dict tys -> tys |> Map.tryFind key |> Option.defaultValue Type.Some |> Ok
+                |> Result.bind (fun exprTy ->
+                    match exprTy with
+                    | Type.Object tys -> tys |> Map.tryFind key |> Option.defaultValue Type.Some |> Ok
+                    | Type.SizedArray tys ->
+                        match key with
+                        | Key.Index index ->
+                            tys
+                            |> List.tryItem index
+                            |> Option.toResultWith (CannotIndexWith(Type.Int, Type.SizedArray tys))
+                        | _ -> Error(CannotAccessWith(key, exprTy))
+                    | Type.Array ty ->
+                        match key with
+                        | Key.Index _ -> Ok ty
+                        | _ -> Error(CannotAccessWith(key, exprTy))
                     | Type.Any -> Ok Type.Any
                     | _ -> Error <| failwith "Not Implemented")
             | Expr.UnOp(_) -> failwith "Not Implemented"
@@ -294,12 +289,12 @@ module Type =
             | Expr.BinOp(_) -> failwith "Not Implemented"
             | Expr.BinOpApplied(op, lhs, rhs) ->
                 monad {
-                    let! lhsType = lhs |> typing state
-                    let! rhsType = rhs |> typing state
+                    let! lhsTy = lhs |> typing state
+                    let! rhsTy = rhs |> typing state
 
-                    let! retType = state.FindBinOp op lhsType rhsType
+                    let! retTy = state.FindBinOp op lhsTy rhsTy
 
-                    return retType
+                    return retTy
                 }
             | Expr.Apply(fun_, args) ->
                 monad {
@@ -317,7 +312,7 @@ module Type =
                         else
                             return! Error(failwith "TODO")
                     | Type.Any -> return Type.Any
-                    | _ -> return! Error(failwith "TODO")
+                    | _ -> return! Error(NotAFunction funType)
                 }
             | Expr.EvalBlock block -> typingBlock state block
             | Expr.If(cases, else_) ->

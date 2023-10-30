@@ -18,8 +18,8 @@ let rec private transpileExpr (expr: Expr) =
     | Expr.StringLit stringLit -> stringLit.Compose
     | Expr.Variable var -> var.Compose
     | Expr.Array array -> array |> List.map transpileExpr |> String.concat " " |> sprintf "[%s]"
-    | Expr.Dictionary dict ->
-        dict
+    | Expr.Object obj ->
+        obj
         |> List.map (fun (key, value) -> (key.Compose, transpileExpr value) ||> sprintf "%s: %s")
         |> List.map (fun s -> s |> String.split [ "\n" ] |> Seq.map (sprintf "    %s\n") |> String.concat "")
         |> String.concat ""
@@ -27,8 +27,10 @@ let rec private transpileExpr (expr: Expr) =
     | Expr.IndexAccess(expr, index) -> sprintf "(%s)[%s]" (expr |> transpileExpr) (index |> transpileExpr)
     | Expr.FieldAccess(expr, key) ->
         let expr' = expr |> transpileExpr
-        let key' = key.Compose
-        sprintf "(%s).%s" expr' key'
+
+        match key with
+        | Key.Index i -> sprintf "(%s)[%d]" expr' i
+        | Key.Name key' -> sprintf "(%s).%s" expr' key'.Name
     | Expr.UnOp(_) -> failwith "Not Implemented"
     | Expr.UnOpApplied(op, arg) -> [ op.Compose; transpileExpr arg |> sprintf "(%s)" ] |> String.concat " "
     | Expr.BinOp(_) -> failwith "Not Implemented"
