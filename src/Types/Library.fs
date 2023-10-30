@@ -9,10 +9,11 @@ module private Result =
         result
         |> List.fold
             (fun acc result ->
-                match acc, result with
-                | Ok acc, Ok result -> Ok(result :: acc)
-                | Ok _, Error error -> Error error
-                | Error error, _ -> Error error)
+                monad {
+                    let! acc = acc
+                    let! result = result
+                    return result :: acc
+                })
             (Ok [])
         |> Result.map List.rev
 
