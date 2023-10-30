@@ -1,28 +1,17 @@
-var x = 0
+let f = @(x, y) {
+    eval {
+        if (x) < (100) {
+            <: (x)
+        } else {
+            <: ("too big!")
+        }
+        [y (x) + (y)]
+    }
+}
+let x = 0
 var y = 1
 for (let i, 20) {
-    if (x) < (100) {
-        <: (x)
-    } else {
-        <: ("too big!")
-    }
-    let z = ((@(x) {
-        @(y) {
-            (Core:add)(x, y)
-        }
-    })(x))(y)
-    x = y
-    y = z
+    let xy = (f)(x, y)
+    x = (xy)[0]
+    y = (xy)[1]
 }
-let xy = [x y]
-let dict = {
-    foo: if (x) == (0) {
-        42
-    } else {
-        334
-    }
-    bar: {
-        baz: "ok"
-    }
-}
-<: (((dict).bar).baz)

@@ -269,9 +269,17 @@ let rec private statement
     let for_ () : Parser<Statement, unit> =
         let pat = keyword' "for" >>. pattern
         let range = syntaxSymbol "in" >>. binOpSeq expr
-        let block = block (statement binOpSeq expr block) .>> keyword "end"
 
-        pipe3 pat range block (fun pat range block -> For(pat, range, block))
+        let statementOrEmpty =
+            choice [ statement binOpSeq expr block |> attempt |>> Some; whitespace >>% None ]
+
+        let statements =
+            statementOrEmpty .>>. (linebreak >>. statementOrEmpty |> attempt |> many)
+            |>> List.Cons
+            |>> List.choose id
+            .>> keyword "end"
+
+        pipe3 pat range statements (fun pat range statements -> For(pat, range, statements))
 
     let rawExpr () : Parser<Statement, unit> = expr () |>> RawExpr
 
@@ -298,8 +306,17 @@ let rec private binOpSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit>
 
     let single' (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
-            let folding expr key = Expr.FieldAccess(expr, key)
-            pipe2 (single expr) (pchar '.' >>. key |> attempt |> many) (Seq.fold folding))
+            let indexAccess =
+                syntaxSymbol "[" >>. expr () .>> syntaxSymbol "]"
+                |>> (fun index -> fun expr -> Expr.IndexAccess(expr, index))
+
+            let FieldAccess =
+                pchar '.' >>. key |>> (fun key -> fun expr -> Expr.FieldAccess(expr, key))
+
+            let chain = [ indexAccess; FieldAccess ] |> Seq.map attempt |> choice |> many
+
+            let folding (expr: Expr) (chain: Expr -> Expr) = chain expr
+            pipe2 (single expr) chain (Seq.fold folding))
 
     let arg (expr: unit -> Parser<Expr, unit>) : Parser<Expr list, unit> =
         parse.Delay(fun () ->

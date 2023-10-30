@@ -24,6 +24,7 @@ let rec private transpileExpr (expr: Expr) =
         |> List.map (fun s -> s |> String.split [ "\n" ] |> Seq.map (sprintf "    %s\n") |> String.concat "")
         |> String.concat ""
         |> sprintf "{\n%s}"
+    | Expr.IndexAccess(expr, index) -> sprintf "(%s)[%s]" (expr |> transpileExpr) (index |> transpileExpr)
     | Expr.FieldAccess(expr, key) ->
         let expr' = expr |> transpileExpr
         let key' = key.Compose
@@ -107,11 +108,19 @@ and private transpileStatement (statement: Statement) =
         match pat with
         | Pattern.Variable(var, _) -> [ var.Compose; "="; transpileExpr expr ] |> String.concat " "
         | _ -> failwith "Not Implemented"
-    | For(pat, range, block) ->
+    | For(pat, range, statements) ->
         let loop = $"(let {pat |> transpilePattern}, {range |> transpileExpr})"
-
-        [ "for"; loop; block |> transpileBlock ] |> String.concat " "
+        [ "for"; loop; statements |> transpileStatements ] |> String.concat " "
     | Return expr -> expr |> transpileExpr |> sprintf "return %s"
+
+and transpileStatements (statements: Statement list) =
+    let statements =
+        statements
+        |> Seq.map transpileStatement
+        |> Seq.map (fun s -> s |> String.split [ "\n" ] |> Seq.map (sprintf "    %s\n") |> String.concat "")
+        |> String.concat ""
+
+    sprintf "{\n%s}" statements
 
 and transpileBlock (block: Block) =
     let statements =

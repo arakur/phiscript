@@ -134,6 +134,7 @@ type Expr =
     | Variable of Var
     | Array of Expr list
     | Dictionary of (Key * Expr) list
+    | IndexAccess of expr: Expr * index: Expr
     | FieldAccess of expr: Expr * key: Key
     | UnOp of UnOp
     | UnOpApplied of op: UnOp * arg: Expr
@@ -152,7 +153,7 @@ and Statement =
     | Var of pat: Pattern * expr: Expr
     | Gets of pat: Pattern * expr: Expr
     | Do of expr: Expr
-    | For of pat: Pattern * range: Expr * block: Block
+    | For of pat: Pattern * range: Expr * statements: Statement list
     | Return of expr: Expr
     | RawExpr of expr: Expr
 

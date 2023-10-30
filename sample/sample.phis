@@ -1,14 +1,16 @@
-var x: int = 0; var y: int = 1
-for i in 20
+let f = (x: int, y: int) -> begin
     if x < 100
         <: x
     else
         <: "too big!"
     end
-    z: int -> int -> int := (x -> y -> Core::add(x, y)) x y
-    x <- y; y <- z
+    [y, x + y]
 end
-let xy: [some, some] = [x, y]
-let dict: {
-    foo: int; bar: {baz: string}} = {foo: if x == 0 then 42 else 334 end;bar: {baz: "ok"}}
-<: dict.bar.baz
+
+let x: int = 0
+var y: int = 1
+
+for i in 20
+    xy := f(x, y)
+    x: int <- xy[0]; y <- xy[1]
+end
