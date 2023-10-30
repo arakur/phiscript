@@ -414,12 +414,11 @@ module Type =
                 monad {
                     let! ty' = typing state expr
 
-                    if ty.IsNone then
-                        return TypingState.addVar var ty' Immutable state
-                    elif isCompatible ty' ty.Value then
-                        return TypingState.addVar var ty.Value Immutable state
-                    else
-                        return! Error(IncompatibleAssignment(ty.Value, ty'))
+                    if ty.IsSome then
+                        let ty = ty.Value
+                        do! Result.assertWith (isCompatible ty' ty) (IncompatibleAssignment(ty, ty'))
+
+                    return TypingState.addVar var (ty |> Option.defaultValue ty') Immutable state
                 }
             | Let(_, _) -> failwith "Not Implemented"
             | Var(Pattern.Variable(var, ty), expr) ->
@@ -441,10 +440,9 @@ module Type =
                     do! Result.assertWith (mutability = Mutable) (ImmutableVariableReassigned var)
                     do! Result.assertWith (isCompatible ty'' ty') (IncompatibleAssignment(ty', ty''))
 
-                    do!
-                        Result.assertWith
-                            (ty.IsNone || isCompatible ty'' ty.Value)
-                            (IncompatibleAssignment(ty.Value, ty''))
+                    if ty.IsSome then
+                        let ty = ty.Value
+                        do! Result.assertWith (isCompatible ty'' ty) (IncompatibleAssignment(ty, ty''))
 
                     return state
                 }
@@ -454,11 +452,11 @@ module Type =
                 monad {
                     let! rangeTy = typing state range
 
-                    let isRangeTyCompatible = isCompatible rangeTy Type.Int
-                    let isTyCompatible = ty.IsNone || isCompatible ty.Value Type.Int
+                    do! Result.assertWith (isCompatible rangeTy Type.Int) (InvalidForRange(rangeTy))
 
-                    do! Result.assertWith isRangeTyCompatible (InvalidForRange(rangeTy))
-                    do! Result.assertWith isTyCompatible (IncompatibleAssignment(ty.Value, Type.Int))
+                    if ty.IsSome then
+                        let ty = ty.Value
+                        do! Result.assertWith (isCompatible ty Type.Int) (IncompatibleAssignment(ty, Type.Int))
 
                     let state' =
                         TypingState.addVar var (ty |> Option.defaultValue Type.Int) Immutable state // REMARK: Variables in for-loop are always immutable.

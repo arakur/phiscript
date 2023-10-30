@@ -112,6 +112,13 @@ type LiteralType =
     | True
     | False
 
+    member this.Compose =
+        match this with
+        | Numeral numeral -> numeral.Compose
+        | StringLit stringLit -> stringLit.Compose
+        | True -> "true"
+        | False -> "false"
+
 [<RequireQualifiedAccess>]
 type Type =
     | Literal of LiteralType

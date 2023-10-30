@@ -12,6 +12,23 @@ let rec private transpilePattern (pattern: Pattern) =
     | Pattern.Array array -> array |> List.map transpilePattern |> String.concat ", " |> sprintf "[%s]"
     | Pattern.Wildcard -> "*"
 
+let rec private assertType (ty: Type) =
+    match ty with
+    | Type.Literal lit -> $"@(x) {{x == {lit.Compose}}}"
+    | Type.Int -> "@(x) {Core:type(x) == \"num\"}" // REMARK: It does not check if the number is integer.
+    | Type.Number -> "@(x) {Core:type(x) == \"num\"}"
+    | Type.String -> "@(x) {Core:type(x) == \"str\"}"
+    | Type.Bool -> "@(x) {Core:type(x) == \"bool\"}"
+    | Type.Null -> "@(x) {Core:type(x) == \"null\"}"
+    | Type.Void -> "@(x) {Core:type(x) == \"null\"}" // FIXME
+    | Type.SizedArray(_) -> failwith "Not Implemented"
+    | Type.Array(_) -> failwith "Not Implemented"
+    | Type.Object(_) -> failwith "Not Implemented"
+    | Type.Union(lhs, rhs) -> failwith "Not Implemented"
+    | Type.Function(args, ret) -> failwith "Not Implemented"
+    | Type.Any -> "@(_) {false}"
+    | Type.Some -> "@(_) {true}"
+
 let rec private transpileExpr (expr: Expr) =
     match expr with
     | Expr.Numeral numeral -> numeral.Compose

@@ -101,7 +101,7 @@ match ast with
         Type.TypingState.empty
         |> Type.TypingState.addVar
             (Var.Namespace { Path = [ "Core" ]; Name = "add" })
-            (Type.Function([ Type.Int; Type.Int ], Type.Int))
+            (Type.Function([ Type.Some; Type.Some ], Type.Any)) // External function.
             Type.Mutability.Immutable
         |> Type.TypingState.addUnOp { Name = UnOpName "<:" } Type.Some Type.Void
         |> Type.TypingState.addBinOp { Name = BinOpName "==" } Type.Some Type.Some Type.Bool
