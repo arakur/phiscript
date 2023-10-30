@@ -200,6 +200,7 @@ module Keywords =
           "elif"
           "else"
           "match"
+          "case"
           "for"
           "end" ]
         |> Set.ofList

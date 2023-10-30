@@ -1,2 +1,30 @@
-<: Core:type(null)
-<: Core:type(eval {let x = 0})
+let p = 334
+eval {
+    let _ = p
+    if (_ == 42) {
+        <: ("foo")
+    }
+    elif (_ == 57) {
+        <: ("bar")
+    }
+    elif (_ == 334) {
+        <: ("baz")
+    }
+    elif (true) {
+        let x = _
+        eval {
+        <: ("other:")
+        <: (x)
+        eval {
+        let _ = (1) + (1)
+        if (_ == 2) {
+            <: ("ok")
+        }
+        elif (true) {
+            <: ("wtf")
+        }
+        
+    }
+    }}
+    
+}

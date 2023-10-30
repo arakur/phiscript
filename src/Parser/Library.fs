@@ -386,10 +386,10 @@ let rec private expr () : Parser<Expr, unit> =
     let match_ (expr: unit -> Parser<Expr, unit>) (block: Parser<Block, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
             let match_ = keyword' "match" >>. expr ()
-            let case = pattern .>>. block
-            let cases = many1 case .>> keyword "end"
+            let case = keyword' "case" >>. pattern .>>. block |>> Some
+            let cases = many1 (case <|> (whitespace >>. linebreak >>% None)) |>> List.choose id
 
-            match_ .>>. cases |>> Expr.Match)
+            match_ .>>. cases .>> keyword' "end" |>> Expr.Match)
 
     let object (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->

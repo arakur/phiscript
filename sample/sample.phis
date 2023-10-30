@@ -18,3 +18,23 @@ let obj: {foo: int; bar: {baz: string}} = {
     bar: {baz: "ok"}
 }
 <: obj.bar.baz
+
+let p: int = 334
+
+match p
+case 42
+    <: "foo"
+case 57
+    <: "bar"
+case 334
+    <: "baz"
+case x
+    <: "other:"
+    <: x
+    match 1 + 1
+    case 2
+        <: "ok"
+    case *
+        <: "wtf"
+    end
+end

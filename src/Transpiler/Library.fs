@@ -3,6 +3,7 @@
 open Syntax
 
 open FSharpPlus
+open FSharpPlus
 
 let rec private transpilePattern (pattern: Pattern) =
     match pattern with
@@ -11,22 +12,6 @@ let rec private transpilePattern (pattern: Pattern) =
     | Pattern.Variable(var, _) -> var.Compose
     | Pattern.Array array -> array |> List.map transpilePattern |> String.concat ", " |> sprintf "[%s]"
     | Pattern.Wildcard -> "*"
-
-let rec private assertType (ty: Type) =
-    match ty with
-    | Type.Literal lit -> $"@(x) {{x == {lit.Compose}}}"
-    | Type.Int -> "@(x) {Core:type(x) == \"num\"}" // REMARK: It does not check if the number is integer.
-    | Type.Number -> "@(x) {Core:type(x) == \"num\"}"
-    | Type.String -> "@(x) {Core:type(x) == \"str\"}"
-    | Type.Bool -> "@(x) {Core:type(x) == \"bool\"}"
-    | Type.Null -> "@(x) {Core:type(x) == \"null\"}"
-    | Type.SizedArray(_) -> failwith "Not Implemented"
-    | Type.Array(_) -> failwith "Not Implemented"
-    | Type.Object(_) -> failwith "Not Implemented"
-    | Type.Union(lhs, rhs) -> failwith "Not Implemented"
-    | Type.Function(args, ret) -> failwith "Not Implemented"
-    | Type.Any -> "@(_) {false}"
-    | Type.Some -> "@(_) {true}"
 
 let rec private transpileExpr (expr: Expr) =
     match expr with
@@ -56,7 +41,6 @@ let rec private transpileExpr (expr: Expr) =
           transpileExpr rhs |> sprintf "(%s)" ]
         |> String.concat " "
     | Expr.Apply(fun_, args) ->
-        // TODO: 現状の実装は別の場所で定義したタプルを入力した場合に正しくならないので，型情報を使って正しくする．
         let fun_' = transpileExpr fun_
         let args' = args |> List.map transpileExpr |> String.concat ", "
         sprintf "(%s)(%s)" fun_' args'
@@ -78,18 +62,48 @@ let rec private transpileExpr (expr: Expr) =
 
             if' @ elif' @ else' |> String.concat " "
     | Expr.Match(expr, cases) ->
-        let header = sprintf "match (%s) {" (expr |> transpileExpr)
+        // TODO: Complete implementation of pattern matching.
+        // TODO: 汚すぎるのでリファクタリングする．
+        let rec eachCase temp pat =
+            match pat with
+            | Pattern.Numeral numeral -> fun block' -> sprintf "if (%s == %s) %s" temp numeral.Compose block'
+            | Pattern.StringLit stringLit -> fun block' -> sprintf "if (%s == %s) %s" temp stringLit.Compose block'
+            | Pattern.Array patterns ->
+                let typeChecking = sprintf "Core:type(%s) == \"arr\"" temp
+                let lengthChecking = sprintf "Core:length(%s) == %d" temp (patterns |> List.length)
+                let checkCond = [ typeChecking; lengthChecking ] |> String.concat " && "
 
-        let cases' =
+                let bindings =
+                    patterns
+                    |> Seq.mapi (fun i pat -> i, sprintf "%s%d_" temp i, pat)
+                    |> Seq.map (fun (i, temp', pat) -> i, temp', eachCase temp' pat)
+
+                fun block' ->
+                    (bindings, block')
+                    ||> Seq.foldBack (fun (i, temp', caseBuilder) acc ->
+                        sprintf "let %s = %s[%d]\neval %s" temp' temp i (acc |> caseBuilder))
+                    |> sprintf "if (%s) %s" checkCond
+            | Pattern.Variable(var, None) ->
+                fun block' -> sprintf "if (true) {\n    let %s = %s\n    eval %s}" var.Compose temp block'
+            | Pattern.Variable(_, Some _) -> failwith "Not Implemented"
+            | Pattern.Wildcard -> fun block' -> sprintf "if (true) %s" block'
+
+        let cases' temp cases =
+            let letTemp = sprintf "let %s = %s" temp (expr |> transpileExpr)
+
             cases
-            |> List.map (fun (pat, block) -> [ pat |> transpilePattern; block |> transpileBlock ] |> String.concat " ")
-            |> List.map (sprintf "    %s\n")
-            |> String.concat ""
+            |> List.map (fun (pat, block) -> eachCase temp pat, block)
+            |> List.map (fun (caseBuilder, block) -> caseBuilder (block |> transpileBlock))
+            |> String.concat "\nel"
+            |> sprintf "%s\n%s\n" letTemp
 
-        let footer = "}"
+        let temp = "_"
 
-        header + cases' + footer
-
+        cases' temp cases
+        |> String.split [ "\n" ]
+        |> Seq.map (sprintf "    %s\n")
+        |> String.concat ""
+        |> sprintf "eval {\n%s}"
     | Expr.Lambda(args, body) ->
         let args' =
             args
