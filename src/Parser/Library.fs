@@ -210,7 +210,7 @@ let private pattern: Parser<Pattern, unit> =
                 |>> List.Cons
                 |>> Pattern.Array
 
-            let wildcard = syntaxSymbol "_" |> attempt >>% Pattern.Wildcard
+            let wildcard = syntaxSymbol "*" |> attempt >>% Pattern.Wildcard
 
             whitespace >>. choice [ numeral; stringLit; attempt variable; array; wildcard ])
 
