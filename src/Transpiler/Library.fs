@@ -20,7 +20,6 @@ let rec private assertType (ty: Type) =
     | Type.String -> "@(x) {Core:type(x) == \"str\"}"
     | Type.Bool -> "@(x) {Core:type(x) == \"bool\"}"
     | Type.Null -> "@(x) {Core:type(x) == \"null\"}"
-    | Type.Void -> "@(x) {Core:type(x) == \"null\"}" // FIXME
     | Type.SizedArray(_) -> failwith "Not Implemented"
     | Type.Array(_) -> failwith "Not Implemented"
     | Type.Object(_) -> failwith "Not Implemented"

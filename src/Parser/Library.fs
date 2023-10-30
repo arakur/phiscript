@@ -100,12 +100,11 @@ let rec private type_: Parser<Type, unit> =
         let number () = keyword' "number" >>% Type.Number
         let string () = keyword' "string" >>% Type.String
         let bool () = keyword' "bool" >>% Type.Bool
-        let void_ () = keyword' "void" >>% Type.Void
         let any () = keyword' "any" >>% Type.Any
         let some () = keyword' "some" >>% Type.Some
 
         let single () =
-            [ literalType; int; number; string; bool; void_; any; some ]
+            [ literalType; int; number; string; bool; any; some ]
             |> Seq.map parse.Delay
             |> Seq.map attempt
             |> choice

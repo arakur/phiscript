@@ -127,7 +127,6 @@ type Type =
     | String
     | Bool
     | Null
-    | Void
     | SizedArray of Type list
     | Array of Type
     | Object of Map<Key, Type>

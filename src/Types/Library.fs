@@ -400,7 +400,7 @@ module Type =
 
             monad {
                 let! state' = (Ok state, block.Statements) ||> Seq.fold runStatement
-                let! return' = block.Return |> Option.map (typing state') |> Option.defaultValue (Ok Type.Void)
+                let! return' = block.Return |> Option.map (typing state') |> Option.defaultValue (Ok Type.Null)
 
                 let returnType' =
                     state'.GlobalReturnTypes |> Set.add return' |> Seq.reduce (curry Type.Union)

@@ -103,7 +103,7 @@ match ast with
             (Var.Namespace { Path = [ "Core" ]; Name = "add" })
             (Type.Function([ Type.Some; Type.Some ], Type.Any)) // External function.
             Type.Mutability.Immutable
-        |> Type.TypingState.addUnOp { Name = UnOpName "<:" } Type.Some Type.Void
+        |> Type.TypingState.addUnOp { Name = UnOpName "<:" } Type.Some Type.Null
         |> Type.TypingState.addBinOp { Name = BinOpName "==" } Type.Some Type.Some Type.Bool
         |> Type.TypingState.addBinOp { Name = BinOpName "<" } Type.Number Type.Number Type.Bool
         |> Type.TypingState.addBinOp { Name = BinOpName "+" } Type.Int Type.Int Type.Int
