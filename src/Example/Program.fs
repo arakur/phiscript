@@ -1,5 +1,4 @@
-﻿open Syntax
-open Types
+﻿open Types
 
 printfn "input file path:"
 // let path = System.Console.ReadLine()
@@ -22,7 +21,7 @@ match ast with
     let typingState' =
         (Ok typingState, ast)
         ||> Seq.fold (fun state statement ->
-            state |> Result.bind (fun state -> Type.Expr.typingStatement state statement))
+            state |> Result.bind (fun state -> Typing.Expr.typingStatement state statement))
 
     match typingState' with
     | Ok typingState' ->

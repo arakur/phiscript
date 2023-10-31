@@ -1,6 +1,6 @@
 module Types.TypingState
 
-open Types.Type
+open Types.Typing
 
 let prelude () =
     TypingState.empty
