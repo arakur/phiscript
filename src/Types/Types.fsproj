@@ -9,6 +9,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Syntax\Syntax.fsproj" />
+    <ProjectReference Include="..\Utils\Utils.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharpPlus" Version="1.5.0" />

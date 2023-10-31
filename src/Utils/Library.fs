@@ -2,7 +2,7 @@
 
 open FSharpPlus
 
-module private Result =
+module Result =
     let sequence (result: Result<'T, 'Error> seq) =
         result
         |> Seq.fold
