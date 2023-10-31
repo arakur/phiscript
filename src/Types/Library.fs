@@ -1,13 +1,11 @@
 ﻿module Types
 
-open Syntax
-
 open FSharpPlus
 
 module private Result =
-    let sequence (result: Result<'T, 'Error> list) =
+    let sequence (result: Result<'T, 'Error> seq) =
         result
-        |> List.fold
+        |> Seq.fold
             (fun acc result ->
                 monad {
                     let! acc = acc
@@ -15,10 +13,40 @@ module private Result =
                     return result :: acc
                 })
             (Ok [])
-        |> Result.map List.rev
+        |> Result.map Seq.rev
 
     let assertWith (condition: bool) (error: 'Error) =
         if condition then Ok() else Error(error)
+
+[<RequireQualifiedAccess>]
+type LiteralType =
+    | Numeral of Syntax.Numeral
+    | StringLit of Syntax.StringLit
+    | True
+    | False
+
+    static member fromSyntax(literal: Syntax.LiteralType) =
+        match literal with
+        | Syntax.LiteralType.Numeral numeral -> Numeral numeral
+        | Syntax.LiteralType.StringLit stringLit -> StringLit stringLit
+        | Syntax.LiteralType.True -> True
+        | Syntax.LiteralType.False -> False
+
+[<RequireQualifiedAccess>]
+type Type =
+    | Literal of LiteralType
+    | Int
+    | Number
+    | String
+    | Bool
+    | Null
+    | SizedArray of Type list
+    | Array of Type
+    | Object of Map<Syntax.Key, Type>
+    | Union of lhs: Type * rhs: Type
+    | Function of args: Type list * ret: Type
+    | Any
+    | Some
 
 module Literal =
     let typeOf (lit: LiteralType) =
@@ -31,21 +59,22 @@ module Literal =
 //
 
 type TypingError =
-    | UndefinedVariable of Var
-    | UndefinedUnOp of UnOp
-    | UndefinedBinOp of BinOp
-    | UnOpArgumentTypeMismatch of op: UnOp * expected: Type list * actual: Type
-    | BinOpArgumentTypeMismatch of op: BinOp * expected: (Type * Type) list * actual: (Type * Type)
+    | UndefinedVariable of Syntax.Var
+    | UndefinedTypeVariable of Syntax.Var
+    | UndefinedUnOp of Syntax.UnOp
+    | UndefinedBinOp of Syntax.BinOp
+    | UnOpArgumentTypeMismatch of op: Syntax.UnOp * expected: Type list * actual: Type
+    | BinOpArgumentTypeMismatch of op: Syntax.BinOp * expected: (Type * Type) list * actual: (Type * Type)
     | IncompatibleAssignment of source: Type * target: Type
-    | ImmutableVariableReassigned of var: Var
+    | ImmutableVariableReassigned of var: Syntax.Var
     | NotAFunction of Type
     | ArgumentNumberMismatch of expected: int * actual: int
     | ArgumentTypeMismatch of index: int * expected: Type * actual: Type
     | CannotIndexWith of index: Type * target: Type
-    | CannotAccessWith of key: Key * target: Type
+    | CannotAccessWith of key: Syntax.Key * target: Type
     | IfConditionTypeNotCompatibleWithBoolean of Type
     | InvalidForRange of Type
-    | IncompatiblePattern of pattern: Pattern * target: Type
+    | IncompatiblePattern of pattern: Syntax.Pattern * target: Type
     | IncompatibleCoercion of source: Type * target: Type
 
 type Typing = Result<Type, TypingError>
@@ -136,25 +165,34 @@ module Type =
         static member mutability(varType: VarType) = varType.Mutability
 
     type TypingState =
-        { Variables: Map<Var, VarType>
-          UnOps: Map<UnOp, (Type * Type) list>
-          BinOps: Map<BinOp, (Type * Type * Type) list>
+        { Variables: Map<Syntax.Var, VarType>
+          TVariables: Map<Syntax.Var, Type>
+          UnOps: Map<Syntax.UnOp, (Type * Type) list>
+          BinOps: Map<Syntax.BinOp, (Type * Type * Type) list>
           GlobalReturnTypes: Type Set }
 
         static member empty =
             { Variables = Map.empty
+              TVariables = Map.empty
               UnOps = Map.empty
               BinOps = Map.empty
               GlobalReturnTypes = Set.empty }
 
-        static member addVar (var: Var) (ty: Type) (mutability: Mutability) (this: TypingState) =
+        static member addVar (var: Syntax.Var) (ty: Type) (mutability: Mutability) (this: TypingState) =
             { this with
                 Variables = this.Variables |> Map.add var { Type = ty; Mutability = mutability } }
 
         member this.FindVar var =
             this.Variables.TryFind var |> Option.toResultWith (UndefinedVariable var)
 
-        static member addUnOp (op: UnOp) (arg: Type) (ret: Type) (this: TypingState) =
+        static member addTVar (var: Syntax.Var) (ty: Type) (this: TypingState) =
+            { this with
+                TVariables = this.TVariables |> Map.add var ty }
+
+        member this.FindTVar var =
+            this.TVariables.TryFind var |> Option.toResultWith (UndefinedVariable var)
+
+        static member addUnOp (op: Syntax.UnOp) (arg: Type) (ret: Type) (this: TypingState) =
             let types = this.UnOps |> Map.tryFind op |> Option.defaultValue []
 
             { this with
@@ -169,8 +207,9 @@ module Type =
                 |> Option.map snd
                 |> Option.toResultWith (UnOpArgumentTypeMismatch(op, types |> List.map fst, arg))
 
-        static member addBinOp (op: BinOp) (lhs: Type) (rhs: Type) (ret: Type) (this: TypingState) =
-            let types = this.BinOps |> Map.tryFind op |> Option.defaultValue []
+        static member addBinOp (op: Syntax.BinOp) (lhs: Type) (rhs: Type) (ret: Type) (this: TypingState) =
+            let types: (Type * Type * Type) list =
+                this.BinOps |> Map.tryFind op |> Option.defaultValue []
 
             { this with
                 BinOps = this.BinOps |> Map.add op ((lhs, rhs, ret) :: types) }
@@ -194,65 +233,119 @@ module Type =
             { parent with
                 GlobalReturnTypes = this.GlobalReturnTypes }
 
+        member this.TryTypeFromSyntax(synTy: Syntax.Type) : Result<Type, TypingError> =
+            match synTy with
+            | Syntax.Type.TVar var -> this.FindTVar var
+            | Syntax.Type.Any -> Ok Type.Any
+            | Syntax.Type.Some -> Ok Type.Some
+            | Syntax.Type.Literal lit -> Ok(Type.Literal <| LiteralType.fromSyntax lit)
+            | Syntax.Type.Int -> Ok Type.Int
+            | Syntax.Type.Number -> Ok Type.Number
+            | Syntax.Type.String -> Ok Type.String
+            | Syntax.Type.Bool -> Ok Type.Bool
+            | Syntax.Type.Null -> Ok Type.Null
+            | Syntax.Type.Array ty -> ty |> this.TryTypeFromSyntax |> Result.map Type.Array
+            | Syntax.Type.SizedArray tys ->
+                tys
+                |> List.map (this.TryTypeFromSyntax >> Result.map widen)
+                |> Result.sequence
+                |> Result.map List.ofSeq
+                |> Result.map Type.SizedArray
+            | Syntax.Type.Object tys ->
+                tys
+                |> Map.toSeq
+                |> Seq.map (fun (key, ty) -> ty |> this.TryTypeFromSyntax |> Result.map (fun ty -> key, ty))
+                |> Result.sequence
+                |> Result.map Map.ofSeq
+                |> Result.map Type.Object
+            | Syntax.Type.Function(args, ret) ->
+                monad {
+                    let! args' =
+                        args
+                        |> List.map (this.TryTypeFromSyntax >> Result.map widen)
+                        |> Result.sequence
+                        |> Result.map List.ofSeq
+
+                    let! ret' = ret |> this.TryTypeFromSyntax |> Result.map widen
+                    return Type.Function(args', ret')
+                }
+            | Syntax.Type.Union(lhs, rhs) ->
+                monad {
+                    let! lhs' = lhs |> this.TryTypeFromSyntax |> Result.map widen
+                    let! rhs' = rhs |> this.TryTypeFromSyntax |> Result.map widen
+                    return Type.Union(lhs', rhs')
+                }
+
+
     module Numeral =
-        let typing (numeral: Numeral) =
+        let typing (numeral: Syntax.Numeral) =
             LiteralType.Numeral numeral |> Type.Literal |> Ok
 
-        let widen (numeral: Numeral) =
+        let widen (numeral: Syntax.Numeral) =
             match numeral.Decimal with
             | Some _ -> Type.Number |> Ok
             | None -> Type.Int |> Ok
 
     module Pattern =
-        let rec typing (state: TypingState) (pattern: Pattern) =
+        let rec typing (state: TypingState) (pattern: Syntax.Pattern) =
             match pattern with
-            | Pattern.Numeral numeral -> numeral |> Numeral.typing
-            | Pattern.StringLit _ -> Ok Type.String
-            | Pattern.Variable(_, ty) -> Ok(ty |> Option.defaultValue Type.Any)
-            | Pattern.Array array ->
+            | Syntax.Pattern.Numeral numeral -> numeral |> Numeral.typing
+            | Syntax.Pattern.StringLit _ -> Ok Type.String
+            | Syntax.Pattern.Variable(_, synTy) ->
+                synTy |> Option.map state.TryTypeFromSyntax |> Option.defaultValue (Ok Type.Any)
+            | Syntax.Pattern.Array array ->
                 array
                 |> List.map (typing state)
                 |> Result.sequence
+                |> Result.map List.ofSeq
                 |> Result.map Type.SizedArray
-            | Pattern.Wildcard -> Ok Type.Any
+            | Syntax.Pattern.Wildcard -> Ok Type.Any
 
     module Expr =
-        let rec typing (state: TypingState) (expr: Expr) =
+        let rec typing (state: TypingState) (expr: Syntax.Expr) =
             match expr with
             // ==============
             //  Γ, x:τ ⊢ x:τ
-            | Expr.Variable var -> state.FindVar var |> Result.map VarType.type_
+            | Syntax.Expr.Variable var -> state.FindVar var |> Result.map VarType.type_
             // ==================
             //  Γ ⊢ λ: typeOf(λ)
-            | Expr.Numeral numeral -> numeral |> Numeral.typing
-            | Expr.StringLit stringLit -> Ok(Type.Literal <| LiteralType.StringLit stringLit)
+            | Syntax.Expr.Numeral numeral -> numeral |> Numeral.typing
+            | Syntax.Expr.StringLit stringLit -> Ok(Type.Literal <| LiteralType.StringLit stringLit)
             //  Γ ⊢ e₁: τ₁ ... Γ ⊢ eₙ: τₙ
             // ====================================================
             //  Γ ⊢ { k₁: e₁; ...; kₙ: eₙ }: { k₁: τ₁; ...; kₙ: τₙ }
-            | Expr.Object obj ->
+            | Syntax.Expr.Object obj ->
                 obj
                 |> List.map (fun (key, value) -> value |> typing state |> Result.map (fun ty -> key, ty))
                 |> Result.sequence
-                |> Result.map Map.ofList
+                |> Result.map Map.ofSeq
                 |> Result.map Type.Object
             //  Γ, x₁: τ₁, ..., xₙ: τₙ ⊢ e: ρ
             // ===================================================
             //  Γ ⊢ (x₁: τ₁, ..., xₙ: τₙ) -> e: (τ₁, ..., τₙ) -> ρ
-            | Expr.Lambda(args, body) ->
-                let argTypes: Map<Var, VarType> =
-                    args
-                    |> List.choose (function
-                        | Pattern.Variable(var, ty) -> Some(var, ty |> Option.defaultValue Type.Some) // TODO: Implement type inference to infer type of variable enough precisely.
-                        | Pattern.Wildcard -> None
-                        | _ -> failwith "Not Implemented")
-                    |> List.map (fun (var, ty) -> var, { Type = ty; Mutability = Immutable }) // REMARK: Arguments of lambda are always immutable.
-                    |> Map.ofList
-
-                let state' =
-                    { state with
-                        Variables = state.Variables |> Map.union argTypes }
-
+            | Syntax.Expr.Lambda(args, body) ->
                 monad {
+                    let! (argTypes: Map<Syntax.Var, VarType>) =
+                        args
+                        |> List.map (function
+                            | Syntax.Pattern.Variable(var, synTy) ->
+                                let ty =
+                                    synTy
+                                    |> Option.map (state.TryTypeFromSyntax >> Result.map widen)
+                                    |> Option.defaultValue (Ok Type.Some)
+                                // TODO: Implement type inference to infer type of variable enough precisely.
+                                ty |> Result.map (fun ty -> Some(var, ty))
+                            | Syntax.Pattern.Wildcard -> Ok None
+                            | _ -> failwith "Not Implemented")
+                        |> Result.sequence
+                        |> Result.map (Seq.choose id)
+                        |> Result.map (Seq.map (fun (var, ty) -> var, { Type = ty; Mutability = Immutable })) // REMARK: Arguments of lambda are always immutable.
+                        |> Result.map Map.ofSeq
+
+                    let state' =
+                        { state with
+                            Variables = state.Variables |> Map.union argTypes }
+
                     let! retType = body |> typing state'
 
                     return
@@ -261,12 +354,13 @@ module Type =
                             retType
                         )
                 }
-            | Expr.Array array ->
+            | Syntax.Expr.Array array ->
                 array
                 |> List.map (typing state)
                 |> Result.sequence
+                |> Result.map List.ofSeq
                 |> Result.map Type.SizedArray
-            | Expr.IndexAccess(expr, index) ->
+            | Syntax.Expr.IndexAccess(expr, index) ->
                 monad {
                     let! exprType = expr |> typing state
                     let! indexType = index |> typing state
@@ -282,16 +376,16 @@ module Type =
                     | Type.SizedArray tys, _ when isCompatible indexType Type.Int ->
                         return tys |> List.reduce (curry Type.Union)
                     | Type.Array ty, _ when isCompatible indexType Type.Int -> return ty
-                    | Type.Object obj, Type.Literal(LiteralType.StringLit(StringLit content)) ->
+                    | Type.Object obj, Type.Literal(LiteralType.StringLit(Syntax.StringLit content)) ->
                         return
                             obj
-                            |> Map.tryFind (Key.Name <| VarName.mk content)
+                            |> Map.tryFind (Syntax.Key.Name <| Syntax.VarName.mk content)
                             |> Option.defaultValue Type.Some
                     | Type.Object _, _ when isCompatible indexType Type.String -> return Type.Some
                     | Type.Object _, _ -> return! Error(CannotIndexWith(indexType, exprType))
                     | _ -> return! Error(CannotIndexWith(indexType, exprType))
                 }
-            | Expr.FieldAccess(expr, key) ->
+            | Syntax.Expr.FieldAccess(expr, key) ->
                 expr
                 |> typing state
                 |> Result.bind (fun exprTy ->
@@ -299,19 +393,19 @@ module Type =
                     | Type.Object tys -> tys |> Map.tryFind key |> Option.defaultValue Type.Some |> Ok
                     | Type.SizedArray tys ->
                         match key with
-                        | Key.Index index ->
+                        | Syntax.Key.Index index ->
                             tys
                             |> List.tryItem index
                             |> Option.toResultWith (CannotIndexWith(Type.Int, Type.SizedArray tys))
                         | _ -> Error(CannotAccessWith(key, exprTy))
                     | Type.Array ty ->
                         match key with
-                        | Key.Index _ -> Ok ty
+                        | Syntax.Key.Index _ -> Ok ty
                         | _ -> Error(CannotAccessWith(key, exprTy))
                     | Type.Any -> Ok Type.Any
                     | _ -> Error(CannotAccessWith(key, exprTy)))
-            | Expr.UnOp(_) -> failwith "Not Implemented"
-            | Expr.UnOpApplied(op, arg) ->
+            | Syntax.Expr.UnOp(_) -> failwith "Not Implemented"
+            | Syntax.Expr.UnOpApplied(op, arg) ->
                 monad {
                     let! argType = arg |> typing state
 
@@ -319,8 +413,8 @@ module Type =
 
                     return retType
                 }
-            | Expr.BinOp(_) -> failwith "Not Implemented"
-            | Expr.BinOpApplied(op, lhs, rhs) ->
+            | Syntax.Expr.BinOp(_) -> failwith "Not Implemented"
+            | Syntax.Expr.BinOpApplied(op, lhs, rhs) ->
                 monad {
                     let! lhsTy = lhs |> typing state
                     let! rhsTy = rhs |> typing state
@@ -329,7 +423,7 @@ module Type =
 
                     return retTy
                 }
-            | Expr.Apply(fun_, args) ->
+            | Syntax.Expr.Apply(fun_, args) ->
                 monad {
                     let! funType = fun_ |> typing state
 
@@ -339,8 +433,8 @@ module Type =
 
                         do!
                             Result.assertWith
-                                (List.length expectedArgTypes = List.length argTypes)
-                                (ArgumentNumberMismatch(List.length expectedArgTypes, List.length argTypes))
+                                (List.length expectedArgTypes = Seq.length argTypes)
+                                (ArgumentNumberMismatch(List.length expectedArgTypes, Seq.length argTypes))
 
                         for index, (argTy, expectedTy) in Seq.zip argTypes expectedArgTypes |> Seq.indexed do
                             do!
@@ -352,9 +446,9 @@ module Type =
                     | Type.Any -> return Type.Any
                     | _ -> return! Error(NotAFunction funType)
                 }
-            | Expr.EvalBlock block -> typingBlock state block
-            | Expr.If(cases, else_) ->
-                let caseType (cond: Expr, block: Block) : Result<Type, TypingError> =
+            | Syntax.Expr.EvalBlock block -> typingBlock state block
+            | Syntax.Expr.If(cases, else_) ->
+                let caseType (cond: Syntax.Expr, block: Syntax.Block) : Result<Type, TypingError> =
                     cond
                     |> typing state
                     |> Result.bind (fun ty ->
@@ -365,7 +459,7 @@ module Type =
                     |> Result.bind (typingBlock state)
 
                 monad {
-                    let! cases' = cases |> List.map caseType |> Result.sequence
+                    let! cases' = cases |> List.map caseType |> Result.sequence |> Result.map List.ofSeq
 
                     let! cases'' =
                         match else_ with
@@ -376,8 +470,8 @@ module Type =
 
                     return retTy
                 }
-            | Expr.Match(expr, cases) ->
-                let caseType (exprTy: Type) (pat: Pattern, block: Block) : Result<Type, TypingError> =
+            | Syntax.Expr.Match(expr, cases) ->
+                let caseType (exprTy: Type) (pat: Syntax.Pattern, block: Syntax.Block) : Result<Type, TypingError> =
                     monad {
                         let! patTy = pat |> Pattern.typing state
                         let! blockTy = typingBlock state block
@@ -390,18 +484,19 @@ module Type =
                     let! cases' = cases |> List.map (caseType ty) |> Result.sequence
                     return cases' |> Seq.reduce (fun lhs rhs -> Type.Union(lhs, rhs))
                 }
-            | Expr.Coerce(expr, ty) ->
+            | Syntax.Expr.Coerce(expr, synTy) ->
                 monad {
                     let! exprType = expr |> typing state
+                    let! ty = synTy |> state.TryTypeFromSyntax
 
                     if isCompatible exprType ty then
                         return ty
                     else
                         return! Error(IncompatibleCoercion(exprType, ty))
                 }
-            | Expr.As(_, ty) -> Ok ty
+            | Syntax.Expr.As(_, synTy) -> synTy |> state.TryTypeFromSyntax
 
-        and typingBlock (state: TypingState) (block: Block) =
+        and typingBlock (state: TypingState) (block: Syntax.Block) =
             let runStatement state statement =
                 monad {
                     let! state = state
@@ -418,10 +513,15 @@ module Type =
                 return returnType'
             }
 
-        and typingStatement (state: TypingState) (statement: Statement) : Result<TypingState, TypingError> =
+        and typingStatement (state: TypingState) (statement: Syntax.Statement) : Result<TypingState, TypingError> =
             match statement with
-            | Let(Pattern.Variable(var, ty), expr) ->
+            | Syntax.Let(Syntax.Pattern.Variable(var, synTy), expr) ->
                 monad {
+                    let! ty =
+                        match synTy with
+                        | Some synTy -> synTy |> state.TryTypeFromSyntax |>> Some
+                        | None -> Ok None
+
                     let! ty' = typing state expr
 
                     if ty.IsSome then
@@ -430,9 +530,14 @@ module Type =
 
                     return TypingState.addVar var (ty |> Option.defaultValue ty') Immutable state
                 }
-            | Let(_, _) -> failwith "Not Implemented"
-            | Var(Pattern.Variable(var, ty), expr) ->
+            | Syntax.Let(_, _) -> failwith "Not Implemented"
+            | Syntax.Var(Syntax.Pattern.Variable(var, synTy), expr) ->
                 monad {
+                    let! ty =
+                        match synTy with
+                        | Some synTy -> synTy |> state.TryTypeFromSyntax |>> Some
+                        | None -> Ok None
+
                     let! ty' = typing state expr |> Result.map widen
 
                     match ty with
@@ -441,9 +546,14 @@ module Type =
                         do! Result.assertWith (isCompatible ty' ty) (IncompatibleAssignment(ty, ty'))
                         return TypingState.addVar var ty Mutable state
                 }
-            | Var(_, _) -> failwith "Not Implemented"
-            | Gets(Pattern.Variable(var, ty), expr) ->
+            | Syntax.Var(_, _) -> failwith "Not Implemented"
+            | Syntax.Gets(Syntax.Pattern.Variable(var, synTy), expr) ->
                 monad {
+                    let! ty =
+                        match synTy with
+                        | Some synTy -> synTy |> state.TryTypeFromSyntax |>> Some
+                        | None -> Ok None
+
                     let! { Type = ty'; Mutability = mutability } = state.FindVar var
                     let! ty'' = typing state expr
 
@@ -456,10 +566,15 @@ module Type =
 
                     return state
                 }
-            | Gets(_, _) -> failwith "Not Implemented"
-            | Do expr -> typing state expr |> Result.map (fun _ -> state)
-            | For(Pattern.Variable(var, ty), range, statements) ->
+            | Syntax.Gets(_, _) -> failwith "Not Implemented"
+            | Syntax.Do expr -> typing state expr |> Result.map (fun _ -> state)
+            | Syntax.For(Syntax.Pattern.Variable(var, synTy), range, statements) ->
                 monad {
+                    let! ty =
+                        match synTy with
+                        | Some synTy -> synTy |> state.TryTypeFromSyntax |>> Some
+                        | None -> Ok None
+
                     let! rangeTy = typing state range
 
                     do! Result.assertWith (isCompatible rangeTy Type.Int) (InvalidForRange(rangeTy))
@@ -478,14 +593,21 @@ module Type =
 
                     return state''.ExitScopeInto state
                 }
-            | For(_, _, _) -> failwith "Not Implemented"
-            | Return expr ->
+            | Syntax.For(_, _, _) -> failwith "Not Implemented"
+            | Syntax.Return expr ->
                 monad {
-                    let! ty = typing state expr
+                    let! ty = expr |> Option.map (typing state) |> Option.defaultValue (Ok Type.Null)
                     return TypingState.addReturnType ty state
                 }
-            | RawExpr expr ->
+            | Syntax.Break
+            | Syntax.Continue -> Ok state
+            | Syntax.RawExpr expr ->
                 monad {
                     let! _ = typing state expr
                     return state
+                }
+            | Syntax.TypeDecl(name, synTy) ->
+                monad {
+                    let! ty = synTy |> state.TryTypeFromSyntax
+                    return TypingState.addTVar name ty state
                 }

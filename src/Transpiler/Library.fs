@@ -121,8 +121,8 @@ let rec private transpileExpr (expr: Expr) =
             |> String.concat ""
 
         sprintf "@(%s) {\n%s}" args' body'
-    | Expr.Coerce(expr, ty) -> failwith "Not Implemented"
-    | Expr.As(expr, ty) -> failwith "Not Implemented"
+    | Expr.Coerce(expr, _) -> expr |> transpileExpr
+    | Expr.As(expr, _) -> expr |> transpileExpr
 
 and private transpileStatement (statement: Statement) =
     match statement with
@@ -143,7 +143,13 @@ and private transpileStatement (statement: Statement) =
     | For(pat, range, statements) ->
         let loop = $"(let {pat |> transpilePattern}, {range |> transpileExpr})"
         [ "for"; loop; statements |> transpileStatements ] |> String.concat " "
-    | Return expr -> expr |> transpileExpr |> sprintf "return %s"
+    | Break -> "break"
+    | Continue -> "continue"
+    | Return expr ->
+        expr
+        |> Option.map (transpileExpr >> sprintf "return %s")
+        |> Option.defaultValue "return"
+    | TypeDecl(var, _) -> sprintf "// type %s" var.Compose
 
 and transpileStatements (statements: Statement list) =
     let statements =

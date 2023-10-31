@@ -95,6 +95,13 @@ let private literalType: Parser<LiteralType, unit> =
 
 let rec private type_: Parser<Type, unit> =
     let rec type_' () : Parser<Type, unit> =
+        let tVar () = var |>> Type.TVar
+        // let tVar () =
+        //     keyword' "Content" >>% "Content"
+        //     |>> VarName.mk
+        //     |>> Var.NoNamespace
+        //     |>> Type.TVar // DEBUG
+
         let literalType () = literalType |>> Type.Literal
         let int () = keyword' "int" >>% Type.Int
         let number () = keyword' "number" >>% Type.Number
@@ -104,7 +111,7 @@ let rec private type_: Parser<Type, unit> =
         let some () = keyword' "some" >>% Type.Some
 
         let single () =
-            [ literalType; int; number; string; bool; any; some ]
+            [ literalType; int; number; string; bool; any; some; tVar ]
             |> Seq.map parse.Delay
             |> Seq.map attempt
             |> choice
@@ -259,11 +266,17 @@ let rec private statement
         attempt (pattern .>>. assignSymbols) .>>. expr ()
         |>> (fun ((pat, assign), expr) -> assign (pat, expr))
 
-    let keywordStatement () : Parser<Statement, unit> =
-        let do_ = keyword' "do" >>% Do
-        let return_ = keyword' "return" >>% Return
-        let keyword = [ do_; return_ ] |> Seq.map attempt |> choice
-        parse.Delay(fun () -> keyword .>>. expr () |>> (fun (keyword, expr) -> keyword expr))
+    let do_ () : Parser<Statement, unit> = keyword' "do" >>. expr () |>> Do
+
+    let return_ () : Parser<Statement, unit> =
+        keyword' "return" >>. (expr () |> attempt |> opt) |>> Return
+
+    let break_ () : Parser<Statement, unit> = keyword' "break" >>% Break
+
+    let continue_ () : Parser<Statement, unit> = keyword' "continue" >>% Continue
+
+    let typeDecl () : Parser<Statement, unit> =
+        keyword' "type" >>. var .>> syntaxSymbol "=" .>>. type_ |>> TypeDecl
 
     let for_ () : Parser<Statement, unit> =
         let pat = keyword' "for" >>. pattern
@@ -283,7 +296,15 @@ let rec private statement
     let rawExpr () : Parser<Statement, unit> = expr () |>> RawExpr
 
     parse.Delay(fun () ->
-        [ keywordAssignment; keywordStatement; for_; symbolAssignment; rawExpr ]
+        [ keywordAssignment
+          do_
+          return_
+          break_
+          continue_
+          typeDecl
+          for_
+          symbolAssignment
+          rawExpr ]
         |> Seq.map parse.Delay
         |> choice)
 

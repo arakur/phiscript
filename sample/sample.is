@@ -1,30 +1,18 @@
-let p = 334
-eval {
-    let _ = p
-    if (_ == 42) {
-        <: ("foo")
+// type Content
+var Data = {
+    cases: {
+        A: "Linux"
+        B: "Windows"
+        C: "Mac"
     }
-    elif (_ == 57) {
-        <: ("bar")
+    catName: "OS"
+    domain: "プライベート"
+    use: "使用"
+    people: "人"
+    action: "無視"
+}
+let mkContent = @(data) {
+    eval {
+        ((data).cases).A
     }
-    elif (_ == 334) {
-        <: ("baz")
-    }
-    elif (true) {
-        let x = _
-        eval {
-        <: ("other:")
-        <: (x)
-        eval {
-        let _ = (1) + (1)
-        if (_ == 2) {
-            <: ("ok")
-        }
-        elif (true) {
-            <: ("wtf")
-        }
-        
-    }
-    }}
-    
 }

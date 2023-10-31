@@ -121,6 +121,7 @@ type LiteralType =
 
 [<RequireQualifiedAccess>]
 type Type =
+    | TVar of Var
     | Literal of LiteralType
     | Int
     | Number
@@ -169,9 +170,12 @@ and Statement =
     | Var of pat: Pattern * expr: Expr
     | Gets of pat: Pattern * expr: Expr
     | Do of expr: Expr
-    | For of pat: Pattern * range: Expr * statements: Statement list
-    | Return of expr: Expr
     | RawExpr of expr: Expr
+    | For of pat: Pattern * range: Expr * statements: Statement list
+    | Break
+    | Continue
+    | Return of expr: Expr option
+    | TypeDecl of var: Var * ty: Type
 
 and Block =
     { Statements: Statement list
@@ -180,10 +184,12 @@ and Block =
     static member mk statements =
         match statements |> List.rev with
         | [] -> { Statements = []; Return = None }
-        | RawExpr expr :: statements'
-        | Return expr :: statements' ->
+        | RawExpr expr :: statements' ->
             { Statements = statements' |> List.rev
               Return = Some expr }
+        | Return expr :: statements' ->
+            { Statements = statements' |> List.rev
+              Return = expr }
         | _ ->
             { Statements = statements
               Return = None }
@@ -202,6 +208,7 @@ module Keywords =
           "match"
           "case"
           "for"
+          "as"
           "end" ]
         |> Set.ofList
 
