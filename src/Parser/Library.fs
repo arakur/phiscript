@@ -369,6 +369,21 @@ let rec private binOpSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit>
     let term (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () -> choice [ unOpApplied expr; exprSeq expr ])
 
+    let as_ (expr: unit -> Parser<Expr, unit>) : Parser<Expr -> Expr, unit> =
+        parse.Delay(fun () ->
+            let as_ = keyword' "as" >>. type_ expr
+            as_ |>> (fun ty expr -> Expr.As(expr, ty)))
+
+    let coerce (expr: unit -> Parser<Expr, unit>) : Parser<Expr -> Expr, unit> =
+        parse.Delay(fun () ->
+            let as_ = syntaxSymbol ":" >>. type_ expr
+            as_ |>> (fun ty expr -> Expr.Coerce(expr, ty)))
+
+    let asCoerceSeq (expr: unit -> Parser<Expr, unit>) : Parser<(Expr -> Expr) list, unit> =
+        parse.Delay(fun () ->
+            let asCoerce = [ as_ expr; coerce expr ] |> Seq.map attempt |> choice
+            asCoerce |> many)
+
     parse.Delay(fun () ->
         let head = term expr
         let tail = binOp .>>. term expr |> attempt |> many |>> Deque.ofSeq
@@ -378,7 +393,8 @@ let rec private binOpSeq (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit>
         let resultFold =
             Option.map preturn >> Option.defaultValue (fail "Invalid operator sequence.")
 
-        opSeq |>> fold >>= resultFold)
+        opSeq |>> fold >>= resultFold .>>. asCoerceSeq expr
+        |>> (fun (opSeq, asCoerceSeq) -> asCoerceSeq |> List.fold (fun expr f -> f expr) opSeq))
 
 let commaSeparated (expr: unit -> Parser<Expr, unit>) : Parser<Expr list, unit> =
     parse.Delay(fun () ->

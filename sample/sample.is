@@ -1,18 +1,1 @@
-var Data = {
-    cases: {
-        A: "Linux"
-        B: "Windows"
-        C: "Mac"
-    }
-    catName: "OS"
-    domain: "プライベート"
-    use: "使用"
-    people: "人"
-    action: "無視"
-}
-// type Content
-let mkContent = @(data) {
-    eval {
-        ((data).cases).A
-    }
-}
+let x = (1) + (3)
