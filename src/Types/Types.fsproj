@@ -1,20 +1,16 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net7.0</TargetFramework>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
-
   <ItemGroup>
-    <Compile Include="Library.fs" />
+    <Compile Include="Types.fs" />
+    <Compile Include="Prelude.fs" />
   </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\Syntax\Syntax.fsproj" />
   </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="FSharpPlus" Version="1.5.0" />
   </ItemGroup>
-
 </Project>

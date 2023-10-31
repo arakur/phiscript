@@ -231,14 +231,14 @@ module Operators =
 
     let operatorTable =
         [ { Names =
-              [ "="; "<"; ">"; "<="; ">="; "<>"; "!="; "==" ]
+              [ "<"; ">"; "<="; ">="; "!="; "==" ]
               |> List.map BinOpName
               |> List.map BinOp.mk
               |> Set.ofList
             Associativity = Associativity.None }
           { Names = [ "+"; "-" ] |> List.map BinOpName |> List.map BinOp.mk |> Set.ofList
             Associativity = Associativity.Left }
-          { Names = [ "*"; "/" ] |> List.map BinOpName |> List.map BinOp.mk |> Set.ofList
+          { Names = [ "*"; "/"; "%" ] |> List.map BinOpName |> List.map BinOp.mk |> Set.ofList
             Associativity = Associativity.Left } ]
 
     type OpSeq =
