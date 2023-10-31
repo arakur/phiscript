@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net7.0</TargetFramework>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <RequireQualifiedAccess>true</RequireQualifiedAccess>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,5 +14,4 @@
     <PackageReference Include="FSharpPlus" Version="1.5.0" />
     <PackageReference Include="FSharpx.Collections" Version="3.1.0" />
   </ItemGroup>
-
 </Project>

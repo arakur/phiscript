@@ -93,15 +93,9 @@ let private literalType: Parser<LiteralType, unit> =
 
         whitespace >>. choice [ numeral; stringLit; true_; false_ ])
 
-let rec private type_: Parser<Type, unit> =
+let rec private type_ (expr: unit -> Parser<Expr, unit>) : Parser<Type, unit> =
     let rec type_' () : Parser<Type, unit> =
         let tVar () = var |>> Type.TVar
-        // let tVar () =
-        //     keyword' "Content" >>% "Content"
-        //     |>> VarName.mk
-        //     |>> Var.NoNamespace
-        //     |>> Type.TVar // DEBUG
-
         let literalType () = literalType |>> Type.Literal
         let int () = keyword' "int" >>% Type.Int
         let number () = keyword' "number" >>% Type.Number
@@ -110,8 +104,12 @@ let rec private type_: Parser<Type, unit> =
         let any () = keyword' "any" >>% Type.Any
         let some () = keyword' "some" >>% Type.Some
 
+        let typeOf () =
+            keyword' "typeof" >>. syntaxSymbol "<" >>. expr () .>> syntaxSymbol ">"
+            |>> Type.TypeOf
+
         let single () =
-            [ literalType; int; number; string; bool; any; some; tVar ]
+            [ literalType; int; number; string; bool; any; some; typeOf; tVar ]
             |> Seq.map parse.Delay
             |> Seq.map attempt
             |> choice
@@ -198,7 +196,7 @@ let rec private type_: Parser<Type, unit> =
 
     type_' ()
 
-let private pattern: Parser<Pattern, unit> =
+let private pattern (expr: unit -> Parser<Expr, unit>) : Parser<Pattern, unit> =
     let rec p () =
         parse.Delay(fun () ->
             let numeral = numeral |>> Pattern.Numeral
@@ -206,7 +204,9 @@ let private pattern: Parser<Pattern, unit> =
 
             let variable =
                 var
-                .>>. (syntaxSymbol ":" >>. nextCharSatisfies ((<>) '=') >>. type_ |> attempt |> opt)
+                .>>. (syntaxSymbol ":" >>. nextCharSatisfies ((<>) '=') >>. type_ expr
+                      |> attempt
+                      |> opt)
                 |>> Pattern.Variable
 
             let array =
@@ -222,13 +222,13 @@ let private pattern: Parser<Pattern, unit> =
 
     p ()
 
-let private patternSeq: Parser<Pattern list, unit> =
+let private patternSeq (expr: unit -> Parser<Expr, unit>) : Parser<Pattern list, unit> =
     parse.Delay(fun () ->
-        let single = pattern |>> List.singleton
+        let single = pattern expr |>> List.singleton
 
         let tuple =
-            syntaxSymbol "(" |> attempt >>. pattern
-            .>>. (syntaxSymbol "," >>. pattern |> attempt |> many)
+            syntaxSymbol "(" |> attempt >>. pattern expr
+            .>>. (syntaxSymbol "," >>. pattern expr |> attempt |> many)
             .>> syntaxSymbol ")"
             |>> List.Cons
 
@@ -247,39 +247,42 @@ let rec private statement
     (block: Parser<Statement, unit> -> Parser<Block, unit>)
     : Parser<Statement, unit> =
     let keywordAssignment () : Parser<Statement, unit> =
-        let let_ = keyword' "let" >>% Let
-        let var_ = keyword' "var" >>% Var
+        let let_ = keyword' "let" >>% Statement.Let
+        let var_ = keyword' "var" >>% Statement.Var
         let assignKeyword = [ let_; var_ ] |> Seq.map attempt |> choice
         let assignSymbol = syntaxSymbol "="
 
 
-        assignKeyword .>>. pattern .>> assignSymbol .>>. expr ()
+        assignKeyword .>>. pattern expr .>> assignSymbol .>>. expr ()
         |>> (fun ((assign, pat), expr) -> assign (pat, expr))
 
     let symbolAssignment () : Parser<Statement, unit> =
-        let defAssign = syntaxSymbol ":=" >>% Let
-        let gets0 = syntaxSymbol "=" >>% Gets
-        let gets1 = syntaxSymbol "<-" >>% Gets
+        let defAssign = syntaxSymbol ":=" >>% Statement.Let
+        let gets0 = syntaxSymbol "=" >>% Statement.Gets
+        let gets1 = syntaxSymbol "<-" >>% Statement.Gets
 
         let assignSymbols = [ defAssign; gets0; gets1 ] |> Seq.map attempt |> choice
 
-        attempt (pattern .>>. assignSymbols) .>>. expr ()
+        attempt (pattern expr .>>. assignSymbols) .>>. expr ()
         |>> (fun ((pat, assign), expr) -> assign (pat, expr))
 
-    let do_ () : Parser<Statement, unit> = keyword' "do" >>. expr () |>> Do
+    let do_ () : Parser<Statement, unit> =
+        keyword' "do" >>. expr () |>> Statement.Do
 
     let return_ () : Parser<Statement, unit> =
-        keyword' "return" >>. (expr () |> attempt |> opt) |>> Return
+        keyword' "return" >>. (expr () |> attempt |> opt) |>> Statement.Return
 
-    let break_ () : Parser<Statement, unit> = keyword' "break" >>% Break
+    let break_ () : Parser<Statement, unit> = keyword' "break" >>% Statement.Break
 
-    let continue_ () : Parser<Statement, unit> = keyword' "continue" >>% Continue
+    let continue_ () : Parser<Statement, unit> =
+        keyword' "continue" >>% Statement.Continue
 
     let typeDecl () : Parser<Statement, unit> =
-        keyword' "type" >>. var .>> syntaxSymbol "=" .>>. type_ |>> TypeDecl
+        keyword' "type" >>. var .>> syntaxSymbol "=" .>>. type_ expr
+        |>> Statement.TypeDecl
 
     let for_ () : Parser<Statement, unit> =
-        let pat = keyword' "for" >>. pattern
+        let pat = keyword' "for" >>. pattern expr
         let range = syntaxSymbol "in" >>. binOpSeq expr
 
         let statementOrEmpty =
@@ -291,9 +294,9 @@ let rec private statement
             |>> List.choose id
             .>> keyword "end"
 
-        pipe3 pat range statements (fun pat range statements -> For(pat, range, statements))
+        pipe3 pat range statements (fun pat range statements -> Statement.For(pat, range, statements))
 
-    let rawExpr () : Parser<Statement, unit> = expr () |>> RawExpr
+    let rawExpr () : Parser<Statement, unit> = expr () |>> Statement.RawExpr
 
     parse.Delay(fun () ->
         [ keywordAssignment
@@ -407,7 +410,7 @@ let rec private expr () : Parser<Expr, unit> =
     let match_ (expr: unit -> Parser<Expr, unit>) (block: Parser<Block, unit>) : Parser<Expr, unit> =
         parse.Delay(fun () ->
             let match_ = keyword' "match" >>. expr ()
-            let case = keyword' "case" >>. pattern .>>. block |>> Some
+            let case = keyword' "case" >>. pattern expr .>>. block |>> Some
             let cases = many1 (case <|> (whitespace >>. linebreak >>% None)) |>> List.choose id
 
             match_ .>>. cases .>> keyword' "end" |>> Expr.Match)
@@ -429,7 +432,7 @@ let rec private expr () : Parser<Expr, unit> =
             attempt (syntaxSymbol "{") >>. pairs .>> syntaxSymbol "}" |>> Expr.Object)
 
     let lambdaExpr (expr: unit -> Parser<Expr, unit>) : Parser<Expr, unit> =
-        parse.Delay(fun () -> patternSeq .>> syntaxSymbol "->" |> attempt .>>. expr () |>> Expr.Lambda)
+        parse.Delay(fun () -> patternSeq expr .>> syntaxSymbol "->" |> attempt .>>. expr () |>> Expr.Lambda)
 
     //
 

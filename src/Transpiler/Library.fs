@@ -126,30 +126,30 @@ let rec private transpileExpr (expr: Expr) =
 
 and private transpileStatement (statement: Statement) =
     match statement with
-    | Do expr
-    | RawExpr expr -> transpileExpr expr
-    | Let(pat, expr) ->
+    | Statement.Do expr
+    | Statement.RawExpr expr -> transpileExpr expr
+    | Statement.Let(pat, expr) ->
         match pat with
         | Pattern.Variable(var, _) -> [ "let"; var.Compose; "="; transpileExpr expr ] |> String.concat " "
         | _ -> failwith "Not Implemented"
-    | Var(pat, expr) ->
+    | Statement.Var(pat, expr) ->
         match pat with
         | Pattern.Variable(var, _) -> [ "var"; var.Compose; "="; transpileExpr expr ] |> String.concat " "
         | _ -> failwith "Not Implemented"
-    | Gets(pat, expr) ->
+    | Statement.Gets(pat, expr) ->
         match pat with
         | Pattern.Variable(var, _) -> [ var.Compose; "="; transpileExpr expr ] |> String.concat " "
         | _ -> failwith "Not Implemented"
-    | For(pat, range, statements) ->
+    | Statement.For(pat, range, statements) ->
         let loop = $"(let {pat |> transpilePattern}, {range |> transpileExpr})"
         [ "for"; loop; statements |> transpileStatements ] |> String.concat " "
-    | Break -> "break"
-    | Continue -> "continue"
-    | Return expr ->
+    | Statement.Break -> "break"
+    | Statement.Continue -> "continue"
+    | Statement.Return expr ->
         expr
         |> Option.map (transpileExpr >> sprintf "return %s")
         |> Option.defaultValue "return"
-    | TypeDecl(var, _) -> sprintf "// type %s" var.Compose
+    | Statement.TypeDecl(var, _) -> sprintf "// type %s" var.Compose
 
 and transpileStatements (statements: Statement list) =
     let statements =

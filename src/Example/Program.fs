@@ -28,10 +28,18 @@ match ast with
         |> Type.TypingState.addBinOp { Name = BinOpName "<" } Type.Number Type.Number Type.Bool
         |> Type.TypingState.addBinOp { Name = BinOpName "+" } Type.Int Type.Int Type.Int
 
-    let _ =
+    let typingState' =
         (Ok typingState, ast)
         ||> Seq.fold (fun state statement ->
             state |> Result.bind (fun state -> Type.Expr.typingStatement state statement))
+
+    match typingState' with
+    | Ok typingState' ->
+        printfn "variables: %A" typingState'.Variables
+        printfn "type variables: %A" typingState'.TVariables
+    | Error error ->
+        printfn "FAILED!\n%A" error
+        exit 1
 
     let transpiled = Transpiler.transpile ast
     System.IO.File.WriteAllText(outputPath, transpiled)

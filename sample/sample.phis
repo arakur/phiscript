@@ -1,17 +1,4 @@
-type Content = {
-    cases: {
-        A: string
-        B: string
-        C: string
-    }
-    catName: string
-    domain: string
-    use: string
-    people: string
-    action: string
-}
-
-var Data: Content = {
+var Data = {
     cases: {
         A: "Linux"
         B: "Windows"
@@ -23,6 +10,8 @@ var Data: Content = {
     people: "人"
 	action: "無視"
 }
+
+type Content = typeof<Data>
 
 let mkContent = (data: Content) -> begin
     data.cases.A

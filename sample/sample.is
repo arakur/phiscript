@@ -1,4 +1,3 @@
-// type Content
 var Data = {
     cases: {
         A: "Linux"
@@ -11,6 +10,7 @@ var Data = {
     people: "人"
     action: "無視"
 }
+// type Content
 let mkContent = @(data) {
     eval {
         ((data).cases).A

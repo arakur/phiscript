@@ -233,50 +233,6 @@ module Type =
             { parent with
                 GlobalReturnTypes = this.GlobalReturnTypes }
 
-        member this.TryTypeFromSyntax(synTy: Syntax.Type) : Result<Type, TypingError> =
-            match synTy with
-            | Syntax.Type.TVar var -> this.FindTVar var
-            | Syntax.Type.Any -> Ok Type.Any
-            | Syntax.Type.Some -> Ok Type.Some
-            | Syntax.Type.Literal lit -> Ok(Type.Literal <| LiteralType.fromSyntax lit)
-            | Syntax.Type.Int -> Ok Type.Int
-            | Syntax.Type.Number -> Ok Type.Number
-            | Syntax.Type.String -> Ok Type.String
-            | Syntax.Type.Bool -> Ok Type.Bool
-            | Syntax.Type.Null -> Ok Type.Null
-            | Syntax.Type.Array ty -> ty |> this.TryTypeFromSyntax |> Result.map Type.Array
-            | Syntax.Type.SizedArray tys ->
-                tys
-                |> List.map (this.TryTypeFromSyntax >> Result.map widen)
-                |> Result.sequence
-                |> Result.map List.ofSeq
-                |> Result.map Type.SizedArray
-            | Syntax.Type.Object tys ->
-                tys
-                |> Map.toSeq
-                |> Seq.map (fun (key, ty) -> ty |> this.TryTypeFromSyntax |> Result.map (fun ty -> key, ty))
-                |> Result.sequence
-                |> Result.map Map.ofSeq
-                |> Result.map Type.Object
-            | Syntax.Type.Function(args, ret) ->
-                monad {
-                    let! args' =
-                        args
-                        |> List.map (this.TryTypeFromSyntax >> Result.map widen)
-                        |> Result.sequence
-                        |> Result.map List.ofSeq
-
-                    let! ret' = ret |> this.TryTypeFromSyntax |> Result.map widen
-                    return Type.Function(args', ret')
-                }
-            | Syntax.Type.Union(lhs, rhs) ->
-                monad {
-                    let! lhs' = lhs |> this.TryTypeFromSyntax |> Result.map widen
-                    let! rhs' = rhs |> this.TryTypeFromSyntax |> Result.map widen
-                    return Type.Union(lhs', rhs')
-                }
-
-
     module Numeral =
         let typing (numeral: Syntax.Numeral) =
             LiteralType.Numeral numeral |> Type.Literal |> Ok
@@ -286,23 +242,68 @@ module Type =
             | Some _ -> Type.Number |> Ok
             | None -> Type.Int |> Ok
 
-    module Pattern =
-        let rec typing (state: TypingState) (pattern: Syntax.Pattern) =
+    module Expr =
+        let rec tryTypeFromSyntax (state: TypingState) (synTy: Syntax.Type) : Result<Type, TypingError> =
+            match synTy with
+            | Syntax.Type.TVar var -> state.FindTVar var
+            | Syntax.Type.Any -> Ok Type.Any
+            | Syntax.Type.Some -> Ok Type.Some
+            | Syntax.Type.Literal lit -> Ok(Type.Literal <| LiteralType.fromSyntax lit)
+            | Syntax.Type.Int -> Ok Type.Int
+            | Syntax.Type.Number -> Ok Type.Number
+            | Syntax.Type.String -> Ok Type.String
+            | Syntax.Type.Bool -> Ok Type.Bool
+            | Syntax.Type.Null -> Ok Type.Null
+            | Syntax.Type.Array ty -> ty |> tryTypeFromSyntax state |> Result.map Type.Array
+            | Syntax.Type.SizedArray tys ->
+                tys
+                |> List.map (tryTypeFromSyntax state >> Result.map widen)
+                |> Result.sequence
+                |> Result.map List.ofSeq
+                |> Result.map Type.SizedArray
+            | Syntax.Type.Object tys ->
+                tys
+                |> Map.toSeq
+                |> Seq.map (fun (key, ty) -> ty |> tryTypeFromSyntax state |> Result.map (fun ty -> key, ty))
+                |> Result.sequence
+                |> Result.map Map.ofSeq
+                |> Result.map Type.Object
+            | Syntax.Type.Function(args, ret) ->
+                monad {
+                    let! args' =
+                        args
+                        |> List.map (tryTypeFromSyntax state >> Result.map widen)
+                        |> Result.sequence
+                        |> Result.map List.ofSeq
+
+                    let! ret' = ret |> tryTypeFromSyntax state |> Result.map widen
+                    return Type.Function(args', ret')
+                }
+            | Syntax.Type.Union(lhs, rhs) ->
+                monad {
+                    let! lhs' = lhs |> tryTypeFromSyntax state |> Result.map widen
+                    let! rhs' = rhs |> tryTypeFromSyntax state |> Result.map widen
+                    return Type.Union(lhs', rhs')
+                }
+            | Syntax.Type.TypeOf expr -> expr |> typing state
+
+        and typingPattern (state: TypingState) (pattern: Syntax.Pattern) =
             match pattern with
             | Syntax.Pattern.Numeral numeral -> numeral |> Numeral.typing
             | Syntax.Pattern.StringLit _ -> Ok Type.String
             | Syntax.Pattern.Variable(_, synTy) ->
-                synTy |> Option.map state.TryTypeFromSyntax |> Option.defaultValue (Ok Type.Any)
+                synTy
+                |> Option.map (tryTypeFromSyntax state)
+                |> Option.defaultValue (Ok Type.Any)
             | Syntax.Pattern.Array array ->
                 array
-                |> List.map (typing state)
+                |> List.map (typingPattern state)
                 |> Result.sequence
                 |> Result.map List.ofSeq
                 |> Result.map Type.SizedArray
             | Syntax.Pattern.Wildcard -> Ok Type.Any
 
-    module Expr =
-        let rec typing (state: TypingState) (expr: Syntax.Expr) =
+        and typing (state: TypingState) (expr: Syntax.Expr) =
             match expr with
             // ==============
             //  Γ, x:τ ⊢ x:τ
@@ -331,7 +332,7 @@ module Type =
                             | Syntax.Pattern.Variable(var, synTy) ->
                                 let ty =
                                     synTy
-                                    |> Option.map (state.TryTypeFromSyntax >> Result.map widen)
+                                    |> Option.map (tryTypeFromSyntax state >> Result.map widen)
                                     |> Option.defaultValue (Ok Type.Some)
                                 // TODO: Implement type inference to infer type of variable enough precisely.
                                 ty |> Result.map (fun ty -> Some(var, ty))
@@ -473,7 +474,7 @@ module Type =
             | Syntax.Expr.Match(expr, cases) ->
                 let caseType (exprTy: Type) (pat: Syntax.Pattern, block: Syntax.Block) : Result<Type, TypingError> =
                     monad {
-                        let! patTy = pat |> Pattern.typing state
+                        let! patTy = pat |> typingPattern state
                         let! blockTy = typingBlock state block
                         do! Result.assertWith (isCompatible patTy exprTy) (IncompatiblePattern(pat, exprTy))
                         return blockTy
@@ -487,14 +488,14 @@ module Type =
             | Syntax.Expr.Coerce(expr, synTy) ->
                 monad {
                     let! exprType = expr |> typing state
-                    let! ty = synTy |> state.TryTypeFromSyntax
+                    let! ty = synTy |> tryTypeFromSyntax state
 
                     if isCompatible exprType ty then
                         return ty
                     else
                         return! Error(IncompatibleCoercion(exprType, ty))
                 }
-            | Syntax.Expr.As(_, synTy) -> synTy |> state.TryTypeFromSyntax
+            | Syntax.Expr.As(_, synTy) -> synTy |> tryTypeFromSyntax state
 
         and typingBlock (state: TypingState) (block: Syntax.Block) =
             let runStatement state statement =
@@ -515,11 +516,11 @@ module Type =
 
         and typingStatement (state: TypingState) (statement: Syntax.Statement) : Result<TypingState, TypingError> =
             match statement with
-            | Syntax.Let(Syntax.Pattern.Variable(var, synTy), expr) ->
+            | Syntax.Statement.Let(Syntax.Pattern.Variable(var, synTy), expr) ->
                 monad {
                     let! ty =
                         match synTy with
-                        | Some synTy -> synTy |> state.TryTypeFromSyntax |>> Some
+                        | Some synTy -> synTy |> tryTypeFromSyntax state |>> Some
                         | None -> Ok None
 
                     let! ty' = typing state expr
@@ -530,12 +531,12 @@ module Type =
 
                     return TypingState.addVar var (ty |> Option.defaultValue ty') Immutable state
                 }
-            | Syntax.Let(_, _) -> failwith "Not Implemented"
-            | Syntax.Var(Syntax.Pattern.Variable(var, synTy), expr) ->
+            | Syntax.Statement.Let(_, _) -> failwith "Not Implemented"
+            | Syntax.Statement.Var(Syntax.Pattern.Variable(var, synTy), expr) ->
                 monad {
                     let! ty =
                         match synTy with
-                        | Some synTy -> synTy |> state.TryTypeFromSyntax |>> Some
+                        | Some synTy -> synTy |> tryTypeFromSyntax state |>> Some
                         | None -> Ok None
 
                     let! ty' = typing state expr |> Result.map widen
@@ -546,12 +547,12 @@ module Type =
                         do! Result.assertWith (isCompatible ty' ty) (IncompatibleAssignment(ty, ty'))
                         return TypingState.addVar var ty Mutable state
                 }
-            | Syntax.Var(_, _) -> failwith "Not Implemented"
-            | Syntax.Gets(Syntax.Pattern.Variable(var, synTy), expr) ->
+            | Syntax.Statement.Var(_, _) -> failwith "Not Implemented"
+            | Syntax.Statement.Gets(Syntax.Pattern.Variable(var, synTy), expr) ->
                 monad {
                     let! ty =
                         match synTy with
-                        | Some synTy -> synTy |> state.TryTypeFromSyntax |>> Some
+                        | Some synTy -> synTy |> tryTypeFromSyntax state |>> Some
                         | None -> Ok None
 
                     let! { Type = ty'; Mutability = mutability } = state.FindVar var
@@ -566,13 +567,13 @@ module Type =
 
                     return state
                 }
-            | Syntax.Gets(_, _) -> failwith "Not Implemented"
-            | Syntax.Do expr -> typing state expr |> Result.map (fun _ -> state)
-            | Syntax.For(Syntax.Pattern.Variable(var, synTy), range, statements) ->
+            | Syntax.Statement.Gets(_, _) -> failwith "Not Implemented"
+            | Syntax.Statement.Do expr -> typing state expr |> Result.map (fun _ -> state)
+            | Syntax.Statement.For(Syntax.Pattern.Variable(var, synTy), range, statements) ->
                 monad {
                     let! ty =
                         match synTy with
-                        | Some synTy -> synTy |> state.TryTypeFromSyntax |>> Some
+                        | Some synTy -> synTy |> tryTypeFromSyntax state |>> Some
                         | None -> Ok None
 
                     let! rangeTy = typing state range
@@ -593,21 +594,21 @@ module Type =
 
                     return state''.ExitScopeInto state
                 }
-            | Syntax.For(_, _, _) -> failwith "Not Implemented"
-            | Syntax.Return expr ->
+            | Syntax.Statement.For(_, _, _) -> failwith "Not Implemented"
+            | Syntax.Statement.Return expr ->
                 monad {
                     let! ty = expr |> Option.map (typing state) |> Option.defaultValue (Ok Type.Null)
                     return TypingState.addReturnType ty state
                 }
-            | Syntax.Break
-            | Syntax.Continue -> Ok state
-            | Syntax.RawExpr expr ->
+            | Syntax.Statement.Break
+            | Syntax.Statement.Continue -> Ok state
+            | Syntax.Statement.RawExpr expr ->
                 monad {
                     let! _ = typing state expr
                     return state
                 }
-            | Syntax.TypeDecl(name, synTy) ->
+            | Syntax.Statement.TypeDecl(name, synTy) ->
                 monad {
-                    let! ty = synTy |> state.TryTypeFromSyntax
+                    let! ty = synTy |> tryTypeFromSyntax state
                     return TypingState.addTVar name ty state
                 }

@@ -135,17 +135,16 @@ type Type =
     | Function of args: Type list * ret: Type
     | Any
     | Some
+    | TypeOf of expr: Expr
 
-[<RequireQualifiedAccess>]
-type Pattern =
+and [<RequireQualifiedAccess>] Pattern =
     | Numeral of Numeral
     | StringLit of StringLit
     | Variable of var: Var * ty: Type option
     | Array of Pattern list
     | Wildcard
 
-[<RequireQualifiedAccess>]
-type Expr =
+and [<RequireQualifiedAccess>] Expr =
     | Numeral of Numeral
     | StringLit of StringLit
     | Variable of Var
@@ -165,7 +164,7 @@ type Expr =
     | Coerce of expr: Expr * ty: Type
     | As of expr: Expr * ty: Type
 
-and Statement =
+and [<RequireQualifiedAccess>] Statement =
     | Let of pat: Pattern * expr: Expr
     | Var of pat: Pattern * expr: Expr
     | Gets of pat: Pattern * expr: Expr
@@ -177,17 +176,17 @@ and Statement =
     | Return of expr: Expr option
     | TypeDecl of var: Var * ty: Type
 
-and Block =
+and [<RequireQualifiedAccess>] Block =
     { Statements: Statement list
       Return: Expr option }
 
     static member mk statements =
         match statements |> List.rev with
         | [] -> { Statements = []; Return = None }
-        | RawExpr expr :: statements' ->
+        | Statement.RawExpr expr :: statements' ->
             { Statements = statements' |> List.rev
               Return = Some expr }
-        | Return expr :: statements' ->
+        | Statement.Return expr :: statements' ->
             { Statements = statements' |> List.rev
               Return = expr }
         | _ ->
